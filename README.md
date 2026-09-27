@@ -1,5 +1,9 @@
 # 🔬 RayScanX 2.3.0
 
+> 📜 **项目说明**：RayScanX 是基于 [RayScan](https://github.com/xiabai2008/rayscan) 项目的二次开发版本。
+> 在此向原作者 [xiabai2008](https://github.com/xiabai2008) 致敬，感谢其在 Web 漏洞扫描领域的杰出贡献。
+> 原项目从 WVS 19 个大版本的迭代成长为一个功能强大的扫描器，RayScanX 在此基础上继续进化。
+
 <div align="center">
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python)
