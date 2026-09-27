@@ -51,15 +51,17 @@ python web_ui/app.py
 
 ## 📚 文档
 
-- [快速上手指南](docs/USAGE.md) — 详细安装和使用说明
-- [功能特性](docs/FEATURES.md) — 完整功能列表和架构亮点
-- [检测模块说明](docs/modules.md) — 所有检测模块的功能介绍
-- [外部工具集成](docs/INTEGRATIONS.md) — 第三方工具和检测能力状态
-- [OA 检测规则](docs/OA_RULES.md) — OA 专项检测规则说明
-- [架构设计](docs/architecture.md) — 系统架构和技术栈
-- [项目结构](docs/PROJECT_STRUCTURE.md) — 目录结构和模块组织
-- [版本历史](docs/CHANGELOG.md) — 详细的版本更新记录
-- [项目演进规划](docs/rayscan_evolution_roadmap.md) — 未来发展方向
+- [使用指南](docs/使用指南.md) — 详细安装和使用说明
+- [功能特性](docs/功能特性.md) — 完整功能列表和架构亮点
+- [检测模块](docs/检测模块.md) — 所有检测模块的功能介绍
+- [工具集成](docs/工具集成.md) — 第三方工具和检测能力状态
+- [OA检测规则](docs/OA检测规则.md) — OA 专项检测规则说明
+- [架构设计](docs/架构设计.md) — 系统架构和技术栈
+- [项目结构](docs/项目结构.md) — 目录结构和模块组织
+- [版本历史](docs/版本历史.md) — 详细的版本更新记录
+- [演进规划](docs/项目演进规划.md) — 未来发展方向
+- [领域词汇表](docs/领域词汇表.md) — 项目术语定义
+- [贡献指南](docs/贡献指南.md) — 如何参与项目开发
 
 ## ⚠️ 免责声明
 
