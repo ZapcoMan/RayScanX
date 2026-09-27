@@ -69,13 +69,23 @@ PORTS = {
 
 
 class Handler(BaseHTTPRequestHandler):
-    oa = "泛微-Ecology"  # 每个 server 实例覆盖
-    safe = False  # 安全模式：漏洞端点返回无特征响应
+    """OA 系统模拟 HTTP 请求处理器"""
+    
+    oa = "泛微-Ecology"  # 每个 server 实例覆盖此属性指定 OA 类型
+    safe = False  # 安全模式：漏洞端点返回无特征响应（用于误报验证）
 
     def log_message(self, *args):
+        """禁用默认日志输出，保持测试环境安静"""
         pass
 
     def _send(self, code, body, ctype="text/html;charset=UTF-8"):
+        """发送 HTTP 响应
+        
+        Args:
+            code: HTTP 状态码
+            body: 响应体字节数据
+            ctype: Content-Type 头部值
+        """
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -83,9 +93,19 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _query(self):
+        """解析 URL 查询参数
+        
+        Returns:
+            dict: 查询参数字典
+        """
         return parse_qs(urlparse(self.path).query)
 
     def _form(self):
+        """解析 POST 表单数据
+        
+        Returns:
+            dict: 表单参数字典
+        """
         length = int(self.headers.get("Content-Length", 0) or 0)
         raw = self.rfile.read(length) if length else b""
         try:
@@ -94,6 +114,14 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     def _route(self, method):
+        """路由分发：根据 OA 类型和路径返回对应响应
+        
+        Args:
+            method: HTTP 方法（GET/POST）
+            
+        Returns:
+            tuple: (状态码, 响应体, Content-Type)
+        """
         path = urlparse(self.path).path
         q = self._query()
         f = self._form() if method == "POST" else {}
@@ -101,54 +129,67 @@ class Handler(BaseHTTPRequestHandler):
         merged = {**q, **f}
         oa = self.oa
 
+        # 首页请求：返回对应 OA 的标志性页面
         if path == "/":
             return 200, HOMEPAGES[oa], "text/html;charset=UTF-8"
 
+        # 安全模式：返回无漏洞特征的响应
         if self.safe:
             return self._safe_route(method, path, merged)
 
         # ── 泛微-Ecology ──
         if oa == "泛微-Ecology":
+            # 任意文件下载漏洞
             if path == "/weaver/weaver.file.FileDownloadForOutDoc":
                 fid = merged.get("downloadFileId", [""])[0]
                 if "etc/passwd" in fid:
                     return 200, PASSWD, "text/plain;charset=UTF-8"
                 return 200, b"<html><body>file not found</body></html>"
+            # 二进制接口响应
             if path == "/api/portal/weaver/weaver.do":
                 return 200, BINARY, "application/octet-stream"
+            # SQL 注入漏洞（返回错误信息）
             if path == "/workflow/WorkflowCenterTreeData.jsp":
                 return 200, SQL_ERROR, "text/html;charset=UTF-8"
 
         # ── 通达OA ──
         if oa == "通达OA":
+            # 登录二维码扫描接口
             if path == "/ispirit/login_code_scan.php":
                 if merged.get("type", [""])[0] == "confirm":
                     return 200, b'{"status":1,"msg":"success"}', "application/json;charset=UTF-8"
                 return 200, b'{"status":0,"msg":"fail"}', "application/json;charset=UTF-8"
+            # SQL 注入漏洞
             if path in ("/mac/gateway.php", "/general/document/index.php"):
                 return 200, SQL_ERROR, "text/html;charset=UTF-8"
 
         # ── 金蝶-Kingdee ──
         if oa == "金蝶-Kingdee":
+            # 二进制接口响应
             if path.endswith("commoninstallServiceHttpFlowService"):
                 return 200, BINARY, "application/octet-stream"
+            # 任意文件读取漏洞
             if path == "/CommonFileServer/c:/windows/win.ini":
                 return 200, WIN_INI, "text/plain;charset=UTF-8"
 
         # ── 蓝凌-Landray ──
         if oa == "蓝凌-Landray":
+            # 任意文件读取漏洞（通过 var 参数）
             if path == "/sys/ui/extend/varkind/custom.jsp":
                 var = merged.get("var", [""])[0]
                 if "file:///etc/passwd" in var:
                     return 200, PASSWD, "text/plain;charset=UTF-8"
                 return 200, b"<html><body>ok</body></html>"
+            # JSP 源码泄露
             if path == "/sys/ui/extend/varkind/custom_pf.jsp":
                 return 200, JSP_SRC, "text/html;charset=UTF-8"
 
         # ── 致远-Seeyon ──
         if oa == "致远-Seeyon":
+            # 二进制接口响应（文件上传/下载）
             if path in ("/seeyon/htmlofficeservlet", "/seeyon/thirdpartyController.do"):
                 return 200, BINARY, "application/octet-stream"
+            # AJAX 接口（文件上传漏洞）
             if path == "/seeyon/ajax.do":
                 if merged.get("method", [""])[0] == "uploadPageLayoutAttachment":
                     return 500, b'{"code":"08441","message":"upload success"}', "application/json;charset=UTF-8"
@@ -156,8 +197,10 @@ class Handler(BaseHTTPRequestHandler):
 
         # ── 用友-Yonyou ──
         if oa == "用友-Yonyou":
+            # 文件上传漏洞
             if path == "/servlet/~uapss/uploadServlet":
                 return 200, BINARY, "application/octet-stream"
+            # 任意文件读取漏洞
             if path == "/portal/file":
                 fid = merged.get("fileid", [""])[0]
                 if "web.xml" in fid:
@@ -166,8 +209,10 @@ class Handler(BaseHTTPRequestHandler):
 
         # ── 禅道-Zentao ──
         if oa == "禅道-Zentao":
+            # SQL 注入漏洞（API 接口）
             if path == "/zentao/api-getModel-api-sql.json":
                 return 200, b'{"success":true,"data":{"result":"1"}}', "application/json;charset=UTF-8"
+            # XPath 注入漏洞（登录接口）
             if path == "/zentao/user-login.html":
                 acct = merged.get("account", [""])[0]
                 if "updatexml" in acct:
@@ -176,16 +221,29 @@ class Handler(BaseHTTPRequestHandler):
 
         # ── 万户-Whir ──
         if oa == "万户-Whir":
+            # 用户信息泄露漏洞
             if path == "/defaultroot/evoInterfaceServlet":
                 if merged.get("paramType", [""])[0] == "user":
                     return 200, b'{"userList":[{"id":"1","userName":"admin","password":"21232f297a57a5a743894a0e4a801fc3"}]}', "application/json;charset=UTF-8"
                 return 403, b"<html><body>Forbidden</body></html>"
 
+        # 默认 404 响应
         return 404, b"<html><body>Not Found</body></html>", "text/html;charset=UTF-8"
 
     def _safe_route(self, method, path, merged):
-        """安全模式：所有漏洞端点返回无漏洞特征响应（用于误报验证）。"""
+        """安全模式路由：所有漏洞端点返回无漏洞特征响应（用于误报验证）
+        
+        Args:
+            method: HTTP 方法
+            path: 请求路径
+            merged: 合并的请求参数
+            
+        Returns:
+            tuple: (状态码, 响应体, Content-Type)
+        """
         oa = self.oa
+        
+        # 泛微-Ecology 安全响应
         if oa == "泛微-Ecology":
             if path == "/weaver/weaver.file.FileDownloadForOutDoc":
                 return 200, b"<html><body>file not found</body></html>"
@@ -193,46 +251,64 @@ class Handler(BaseHTTPRequestHandler):
                 return 200, b'{"code":"0","message":"ok"}', "application/json;charset=UTF-8"
             if path == "/workflow/WorkflowCenterTreeData.jsp":
                 return 200, b"<html><body>ok</body></html>"
+                
+        # 通达OA 安全响应
         if oa == "通达OA":
             if path == "/ispirit/login_code_scan.php":
                 return 200, b'{"status":0,"msg":"fail"}', "application/json;charset=UTF-8"
             if path in ("/mac/gateway.php", "/general/document/index.php"):
                 return 200, b"<html><body>ok</body></html>"
+                
+        # 金蝶-Kingdee 安全响应
         if oa == "金蝶-Kingdee":
             if path.endswith("commoninstallServiceHttpFlowService"):
                 return 200, b"<html><body>ok</body></html>"
             if path == "/CommonFileServer/c:/windows/win.ini":
                 return 200, b"; empty", "text/plain;charset=UTF-8"
+                
+        # 蓝凌-Landray 安全响应
         if oa == "蓝凌-Landray":
             if path == "/sys/ui/extend/varkind/custom.jsp":
                 return 200, b"<html><body>ok</body></html>"
             if path == "/sys/ui/extend/varkind/custom_pf.jsp":
                 return 200, b"<html><body>ok</body></html>"
+                
+        # 致远-Seeyon 安全响应
         if oa == "致远-Seeyon":
             if path in ("/seeyon/htmlofficeservlet", "/seeyon/thirdpartyController.do"):
                 return 200, b"<html><body>ok</body></html>"
             if path == "/seeyon/ajax.do":
                 return 200, b'{"code":"0","message":"ok"}', "application/json;charset=UTF-8"
+                
+        # 用友-Yonyou 安全响应
         if oa == "用友-Yonyou":
             if path == "/servlet/~uapss/uploadServlet":
                 return 200, b"<html><body>ok</body></html>"
             if path == "/portal/file":
                 return 404, b"<html><body>Not Found</body></html>", "text/html;charset=UTF-8"
+                
+        # 禅道-Zentao 安全响应
         if oa == "禅道-Zentao":
             if path == "/zentao/api-getModel-api-sql.json":
                 return 200, b'{"success":false}', "application/json;charset=UTF-8"
             if path == "/zentao/user-login.html":
                 return 200, b"<html><body>login page</body></html>"
+                
+        # 万户-Whir 安全响应
         if oa == "万户-Whir":
             if path == "/defaultroot/evoInterfaceServlet":
                 return 403, b"<html><body>Forbidden</body></html>"
+                
+        # 默认 404 响应
         return 404, b"<html><body>Not Found</body></html>", "text/html;charset=UTF-8"
 
     def do_GET(self):
+        """处理 GET 请求"""
         code, body, ctype = self._route("GET")
         self._send(code, body, ctype)
 
     def do_POST(self):
+        """处理 POST 请求"""
         code, body, ctype = self._route("POST")
         self._send(code, body, ctype)
 
