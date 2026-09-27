@@ -51,10 +51,13 @@ python web_ui/app.py
 
 ## 📚 文档
 
-- [快速上手指南](docs/getting-started.md) — 详细安装和使用说明
+- [快速上手指南](docs/USAGE.md) — 详细安装和使用说明
+- [功能特性](docs/FEATURES.md) — 完整功能列表和架构亮点
 - [检测模块说明](docs/modules.md) — 所有检测模块的功能介绍
+- [外部工具集成](docs/INTEGRATIONS.md) — 第三方工具和检测能力状态
 - [OA 检测规则](docs/OA_RULES.md) — OA 专项检测规则说明
 - [架构设计](docs/architecture.md) — 系统架构和技术栈
+- [项目结构](docs/PROJECT_STRUCTURE.md) — 目录结构和模块组织
 - [版本历史](docs/CHANGELOG.md) — 详细的版本更新记录
 - [项目演进规划](docs/rayscan_evolution_roadmap.md) — 未来发展方向
 
