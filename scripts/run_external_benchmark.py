@@ -86,13 +86,27 @@ def scan(port: int, modules: str, out_name: str, timeout: int = 1800, extra_args
 
 
 def main() -> int:
+    """主函数：启动 Juice Shop 容器，执行扫描，验证基准测试结果
+    
+    流程：
+    1. 启动 OWASP Juice Shop Docker 容器
+    2. 等待服务就绪
+    3. 记录镜像版本信息（用于诊断）
+    4. 执行核心模块扫描（sqli/xss/api/sensitive）
+    5. 验证 XSS 检出（硬断言 ≥1）
+    6. 记录 SQLi 检出（诊断模式，不强制要求）
+    7. 清理容器
+    
+    Returns:
+        int: 基准测试通过返回 0，失败返回 1
+    """
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=3000)
-    parser.add_argument("--image", default="bkimminich/juice-shop")
+    parser.add_argument("--port", type=int, default=3000, help="Juice Shop 映射端口")
+    parser.add_argument("--image", default="bkimminich/juice-shop", help="Docker 镜像名称")
     args = parser.parse_args()
 
     print("[*] 启动 Juice Shop 容器...")
-    subprocess.run(["docker", "rm", "-f", "rayscan-juiceshop"], capture_output=True)
+    subprocess.run(["docker", "rm", "-f", "rayscan-juiceshop"], capture_output=True)  # 清理旧容器
     subprocess.run(
         [
             "docker",
@@ -165,7 +179,7 @@ def main() -> int:
         print("[RESULT] 外部基准通过")
         return 0
     finally:
-        subprocess.run(["docker", "rm", "-f", "rayscan-juiceshop"], capture_output=True)
+        subprocess.run(["docker", "rm", "-f", "rayscan-juiceshop"], capture_output=True)  # 清理容器
 
 
 if __name__ == "__main__":
