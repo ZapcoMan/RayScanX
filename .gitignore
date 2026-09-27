@@ -1,0 +1,125 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+*.log
+reports/
+output/
+*.json
+!pyproject.json
+!.clawhub/
+scan_dvwa_*
+
+# WVS checkpoint / debug files
+.wvs_checkpoint_*
+.wvs_state*
+_checkpoint*
+debug_*.py
+probe_*.py
+
+# Test artifacts (not for distribution) — tests/ is intentionally tracked in VCS
+/test_*.py
+
+# Temp scan scripts (but NOT __init__.py)
+_[a-z]*.py
+_[a-z]*.md
+
+# Scan reports
+scan_reports/
+
+# Checkpoint files
+.wvs_checkpoint_*.json
+
+# Operational / batch scan artifacts
+batch_scanner.py
+check_scan_status.py
+run_batch.cmd
+run_fast.py
+targets_*.txt
+clean/
+
+# RayScan template cache (auto-generated)
+template_cache.db
+# Local templates (user-specific)
+.rayscan/
+.nuclei/
+
+# Personal / local-only working files (kept out of the public repo)
+.workbuddy/
+delivery/
+
+# Local OA 靶场部署产物 / 临时文件（不入库）
+ZenTaoPMS*.exe
+zentao-16.5/
+rayscan-traffic-plan/
+.trae-html-share-packages/
+UsersHZRAppDataLocalTempcheck_installer.ps1

@@ -1,0 +1,354 @@
+﻿## Agent skills
+
+### Issue tracker
+
+GitHub Issues via the `gh` CLI (repo: `xiabai2008/rayscan`). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context 鈥?one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Code change log
+
+All code changes must be logged in this file. Each entry should include:
+- Date (YYYY-MM-DD)
+- Summary of changes
+- Affected files/modules
+
+## Change Log
+
+### 2026-09-15 (Benchmark job 精简 — 模块计数断言移交黄金矩阵)
+- run_benchmark.py 默认只跑 SPA(--js-render)链路(其独有覆盖);历史全站逐模块计数断言
+  改为 --legacy-modules 显式开启——黄金矩阵的 URL 级断言已严格取代,且全站扫描在 CI
+  上单模块超 900s(09-15/09-14 手动 dispatch 的 Benchmark job 连续失败)
+- SPA 扫描超时 1200→1800s;本地冒烟 spa_sqli 1/1 + spa_xss 3/1 全 PASS
+- 影响文件：`scripts/run_benchmark.py`
+
+
+### 2026-09-15 (黄金矩阵 hub 缩面 — CI nightly 提速,22/22 全 PASS)
+- **背景**：nightly Golden Matrix 在共享 runner 上连续超时（09-13/09-14 批次 2 跑满 36min;100min job 上限也不够）
+- **hub 缩面**：`benchmark_lab.py` 新增 7 个 `/hub/<name>` 页（sqli/exec/xss/xxe/business/probe/js），
+  每矩阵批次从专属 hub 爬取 2-5 页替代全站 40 页；hub 链接 = 该批 must_detect 端点 + must_not 护栏
+  （护栏端点必须被扫到防线才生效）；js hub 带 app.js script 引用（js_analysis/jspathfinder 提取依赖）
+- **runner**：scan_groups 支持 `{modules, path}` 字典组；修复 `list(dict)` 把组名展平成键列表的 bug
+- **效果**：本地整轮 22/22 全 PASS、单批大幅提速；CI job 超时 60→100min、scan_batch 超时 2400→3600s
+- 影响文件：`scripts/{benchmark_lab,run_golden_matrix}.py`、`scripts/golden_matrix.yaml`、`.github/workflows/ci.yml`
+
+
+### 2026-09-15 (nightly CI 修复 — web_ui 打包 + 矩阵分批超时)
+- **修复夜间 CI 连续失败（09-13/09-14）**：①测试 job 全版本挂 `No module named 'web_ui'`——`pyproject.toml` packages.find 只含 `wvs*`,T3.5 的 web_ui 包未随 `pip install -e .` 安装（本地靠 cwd 侥幸通过）→ include 补 `web_ui*` ②Golden Matrix 主靶标批次 2(cmdi/rce/lfi)在共享 runner 上跑满 36min `--max-time` 超时,且零发现时超时兜底不落盘 → 拆为 `[cmdi,rce]`+`[lfi]` 两组、scan_batch 超时 2400→3600s、job 超时 60→100min、`_save_partial_results` 指定 -o 时零发现也产出报告（矩阵可诊断）
+- 本地验证：web_ui 仓库外可导入；拆分批次 cmdi 2/rce 1 全 PASS
+- 影响文件：`pyproject.toml`、`scripts/golden_matrix.yaml`、`scripts/run_golden_matrix.py`、`wvs/cli.py`、`.github/workflows/ci.yml`
+
+
+### 2026-09-12 (v2.3 T3.5 Web UI 对齐 CLI — passive/explain/profile 三能力入口)
+- **薄 app + 服务层**：`web_ui/app.py` 收敛为路由/鉴权/CSRF/序列化层；新增 `web_ui/sessions.py`（`ScanSession` 线程+SSE 日志捕获+结果序列化/认证透传/from-proxy 定向扫描、`PassiveProxySession` 代理后台线程/状态机）与 `web_ui/payloads.py`（profile/参数/模块解析纯函数）；前端三 Tab 导航 + 动态模块列表（`/api/modules`，实测 21 模块）+ `wvs.__version__` 渲染
+- **三能力入口**：①passive 捕获队列闭环——UI 启停代理（target 必填、queue_out 限 `scan_reports/`、TLS 解密可选）→ 2s 轮询捕获统计 → 「去扫描队列」预填并 `from_proxy` 定向主动验证（复用共享 `scan_proxy_queue`，gentle 限速）；②explain 证据链——SSE 结果与 JSON 导出均含 `evidence_chain`，结果行点击展开逐信号明细；③profile——下拉应用（填充速率/深度/模块）+ 当前配置保存为新 Profile（内置名 409 保护、名称白名单校验）
+- **五类认证**：form/bearer/basic/apikey/cookie 折叠面板动态字段，扫描中自动启用登录态维持（T2.4）
+- **共享提取**：`wvs/core/passive/queue_scan.py`（`apply_gentle_rate_cap`/`queue_endpoint_to_target`/`scan_proxy_queue` 自 cli.py 转正）；`wvs/plugins/auth.py` 新增 `parse_cookies`/`configure_from_options`/`authenticate_and_apply`，CLI cmd_scan 改用共享装配（`_auth_options_from_args` 保留旧参数兼容，行为不变）
+- **死标签修复**：dashboard/history 接入 Tab 导航；`_record_scan` 首次被调用（历史/统计有数据，读写加锁）；模块列表硬编码 10 个 → `/api/modules` 动态 21 个
+- **测试**：`tests/test_web_ui.py` 25 用例（payloads/ScanSession/PassiveProxySession/API）、`tests/test_auth_assembly.py` 11 用例（五类装配/缺参/cookie 解析/重登回调/CLI 参数映射）；CI ruff check/format 覆盖 `web_ui/`；版本升 2.3.0
+- **验收修复（真实链路发现）**：①`host_matches` 只剥 Host 端口未剥 target 端口 → `passive --target http://host:port` / UI 被动捕获永远 0 条，现双侧剥端口（回归用例 `test_host_matches_target_port_stripped`）；②无 SSE 订阅的扫描在队列残留 `done`/`result`，下一次 UI 扫描读到陈旧 done 提前结束且只显示旧结果 → `ScanSession.start()` 清空残留（回归用例 `test_start_drains_stale_events_from_previous_scan`）
+- **验收记录**：API 扫描 23.5s 4 HIGH 落账历史；被动捕获 → 队列落盘 → `from_proxy` 4.4s 3 HIGH；Playwright UI 冒烟 16/16 PASS；mock 登录服务验证 form 认证成功 + 登录态维持
+- 影响文件：`web_ui/{app.py(重写),sessions.py(新增),payloads.py(新增),__init__.py(新增),templates/index.html}`、`wvs/core/passive/queue_scan.py(新增)`、`wvs/core/passive/queue.py`、`wvs/plugins/auth.py`、`wvs/cli.py`、`tests/{test_web_ui,test_auth_assembly}.py(新增)`、`tests/{test_from_proxy,test_passive_proxy}.py`、`.github/workflows/ci.yml`、`pyproject.toml`、`wvs/__init__.py`、`README.md`、`CHANGELOG.md`、`docs/rayscan-upgrade-roadmap-2026-09-07.md`
+
+### 2026-09-09 (v2.3 T3.2 证据包导出 — report --pack)
+- **`rayscan report --pack <report.json> [-o DIR]`**（`wvs/reporting/evidence_pack.py::EvidencePackBuilder` + CLI `report` 子命令）：JSON 报告 → 可提交证据包目录（README.md 索引 / report.json 副本 / report.sarif 全量 SARIF 2.1.0 / manifest.json 机器可读索引 / vulns/<seq>-<type>-<id8>/ 每漏洞 finding.md + replay.sh + evidence.json）
+- **可复现 curl 重建**：由漏洞记录 method/参数类型/载荷生成——query 参数 Python 侧百分号编码内嵌 URL（与 httpx 一致,避免 curl -G 改写方法）、form body --data-urlencode、json body --data-raw、cookie/header 型 -H；POSIX 单引号安全引用
+- **踩坑（Windows CRLF）**：`Path.write_text` 默认把 \n 翻译成 \r\n → replay.sh 的 URL 带尾随 \r → curl 静默失败（rc 非零、-s 无输出）；包内所有文本改 `open(newline="\n")` 统一 LF 写入（queue.py 的 save 同步修）
+- **差分型漏洞**：布尔盲注 payload 以 `" / "` 拼接 True/False 对（sqli 检测器惯例）→ 自动拆为 TRUE/FALSE 两条重放命令（`build_curl_commands`/`split_differential_payload`），finding.md 提示对比响应差异,evidence.json `request.differential` + `replay_variants`
+- **`find_response_feature(vuln, body)`**：证据→响应特征定位（完整证据 → 剥离 `DB Error (mysql): ` 类检测器注释前缀 → 载荷回显 → 服务端截断回显的最长命中前缀）,验收测试与证据消费方共用
+- **双 schema 兼容**：`load_report_as_scan_result` 同时支持 JSONReporter（wvs-report-v1）与 ScanResult.to_dict（超时/兜底部分保存）
+- **验收**：`tests/test_evidence_pack.py` 8 用例——真实检测器产出漏洞 → 打包 → replay.sh 的 curl **实际执行**且响应复现证据特征；布尔差分双命令响应差异；截断回显最长前缀；另对 E2E 真实报告 10 项发现全量重放 10/10 PASS
+- 影响文件：`wvs/reporting/{evidence_pack.py(新增),__init__.py}`、`wvs/cli.py`、`wvs/core/passive/queue.py`、`tests/test_evidence_pack.py(新增)`
+
+### 2026-09-09 (v2.3 T3.1 passive→active 联动)
+- **被动捕获队列**：`PassiveProxy._capture_and_scan` 在目标域过滤通过后将端点入内存队列（`wvs/core/passive/queue.py::ProxyCaptureQueue`，去重键 = method+路径+排序参数名/类型面，参数值不参与——值变化属同一参数面，首见值作基线；hits 计数）；`_host_matches` 委托给 `queue.host_matches` 共享实现（联动扫描同语义）
+- **队列落盘**：`passive --queue-out PATH`（默认 `scan_reports/proxy_queue.json`）；每入队新端点即增量落盘（Windows 下代理被强杀也不丢队列），停止时覆盖最终态；schema `rayscan-proxy-queue-v1`
+- **`--no-live-scan`**：passive 只捕获不内联检测——联动工作流浏览零干扰，主动验证统一交给 `scan --from-proxy`（避免与内联检测重复做功）
+- **`scan --from-proxy QUEUE_JSON`**：加载队列 → `filter_for_target`（与代理 --target 同 host_matches 语义）→ 速率上限压到 gentle 预设（`_apply_gentle_rate_cap`：ProfileManager 读 gentle.rate=3，用户更低速率优先，gentle 缺失回退默认+告警）→ `_scan_proxy_queue` 定向验证（不爬取，复用模块与 HTTPPool RateLimiter，端点并发 concurrent_endpoints，`_queue_endpoint_to_target` 按 query/body/json/cookie 分流构造 ScanTarget）→ 常规报告管线
+- **可靠性**：结果随做随写（超时/中断可抢救）、同签名去重、`context.source=proxy_queue`；队列文件缺失/坏 schema/过滤后为空均快速失败并提示
+- **测试**：`tests/test_from_proxy.py` 9 用例（去重/序列化 round-trip/域过滤/代理入队与第三方排除/桩模块定向扫描/gentle 限速/参数分流）；`debug_from_proxy_e2e.py`（本地工具，gitignored）端到端验收：Playwright Chromium 经代理浏览 1.7s 捕获 9 端点 → from-proxy 200.5s 检出 10 项全部来自捕获面，未访问的 /ssti /rce /xxe_get /lfi /cmdi 零触碰（全量爬扫下均可检出 → 缺席即证明未被扫描）
+- 影响文件：`wvs/core/passive/{queue.py(新增),proxy.py,__init__.py}`、`wvs/cli.py`、`tests/test_from_proxy.py(新增)`
+
+### 2026-09-09 (v2.2 工程伴随⑩ — scan() 内联爬扫循环/checkpoint/resume 迁入编排器 Stage)
+- **单趟编排流水线**：`WAVScanner.scan()` 收敛为 facade（模块加载 + header + cookie 注入 + 编排器单趟流水线 + 报告统计段）；流水线 WAF→LabAuth→OA→Resume→CrawlDetect→Dedup→Nuclei→AIVerify→Checkpoint，单 stage 失败告警不阻断语义保持不变
+- **新增 Stage（5 个）**：ResumeStage（--resume 恢复:checkpoint 漏洞并入 ctx.raw_vulns + 已完成模块跳过,恢复时序仍在 WAF/OA 检测之后）；CrawlDetectStage（Phase 1/2 整块:分批爬取+流式检测循环 / 端点优先级+lab 合并+参数补全 / JSPathfinder;每批限流 checkpoint、超时预算、T0 兜底 seed 原样保留）；NucleiStage（Phase 3.5,含 T3.4 策展审计字段透传:ctx.result → result.template_selection）；AIVerifyStage（Phase 3.6）；CheckpointStage（最终落盘——checkpoint 需含 Nuclei 合并结果,故与 Dedup 同趟顺序执行）
+- **编排层吞异常收紧为可观测**：stage 失败 = WARNING(带 exc_info 堆栈) + 结构化记录 `ctx.stage_failures`；facade 转入 `result.errors`（随 JSON 报告落盘,scan() docstring "错误记录到 result.errors" 首次成真）+ `_stats["errors"]` 计数
+- **纯结构迁移**：检测行为零变化（CLI/报告格式/参数零变化）；报告统计/排序段保留在 facade——该段异常需向上传播（CLI 超时/异常抢救依赖），不走 stage 失败不阻断语义
+- **验证**：合并 master(T3.3/T3.4) 后全量测试全绿；黄金矩阵 `--only sqli,idor` 冒烟通过（与迁移前 HEAD 基线逐字节一致,含 idor 静态页 4 项 WARN extras——已登记 BASELINES §3）
+- 影响文件：`wvs/core/{scanner,stages,orchestrator}.py`、`tests/test_orchestrator.py`、`CHANGELOG.md`、`docs/rayscan-upgrade-roadmap-2026-09-07.md`、`docs/BASELINES.md`
+- 注意：本迁移在并发会话冲突下经独立 worktree 分支 `feat/v22-orchestrator-stages` 完成（小步 4 提交 + 1 merge）
+
+### 2026-09-09 (v2.3 T3.4 Nuclei 模板策展 — 按 OA 指纹精选模板 + 审计字段)
+- **策展模式**：`get_templates_for_target(..., curated=True)`——指纹命中技术栈只取 tech/CVE 匹配模板,淘汰泛匹配(severity 兜底/misconfig 补充不再注入);tech 模板全量保留(检出不丢失);未命中指纹走原通用选择(行为不变)
+- **接线**：detector 导出 `OA_TO_TECH`/`oa_tech_stack_for()`(兼容注入短名;纯 YAML 新增 OA 无映射安全退通用);scanner `_oa_tech_hints()`(getattr 防御读 `_modules`,兼容 bare 实例)→ `_run_nuclei` 传 `tech_stack` → `NucleiIntegration.scan()` CLI 分支策展(max 200)
+- **审计字段**：`NucleiTemplateManager.last_selection`/`NucleiIntegration.last_selection`(mode/tech_stack/candidates/selected/truncated/templates≤50;builtin-fallback/template-dir/none 模式)→ `ScanResult.template_selection` 新字段 + JSON 报告 `template_selection` 键(Nuclei 未跑则省略)
+- **测试**：`tests/test_nuclei_curation.py` 17 用例(策展精选/数量下降+检出不丢失/空命中/通用不回归/审计/integration 透传/scanner 接线/报告两态);`test_s2_resume.py` FakeNuclei 签名补 `tech_stack=None`;全量 441 通过
+- 影响文件：`wvs/core/{nuclei_template_manager,scanner}.py`、`wvs/integrations/nuclei_integration.py`、`wvs/modules/oa/detector.py`、`wvs/models.py`、`wvs/reporting/json_reporter.py`、`tests/{test_nuclei_curation,test_s2_resume}.py`、`CHANGELOG.md`
+
+### 2026-09-09 (v2.3 T3.3 OA 规则外部化 — rules/oa YAML 规则包)
+- **规则包**：`rules/oa/*.yaml` 12 文件（每文件一种 OA）,从 `OA_RULES`/`OA_CONTENT_FINGERPRINTS` 机械转录（一次性脚本生成 + round-trip 逐字段校验）,检查项含 path/method/params/param_type/type/severity/evidence/min_version/max_version/status_codes 全部元数据
+- **加载器**：新增 `wvs/modules/oa/rules_loader.py`——目录优先级 `~/.rayscan/rules/oa/`（用户覆盖,同名 OA 整体替换）> 仓库 `rules/oa/`;校验失败（缺 path/type/severity、未知字段笔误）丢弃该检查项并告警（宁漏报不弱化验证语义）;数字形标量自动转 str;`SEVERITY_MAP`/`VULN_TYPE_MAP` 移至加载器,detector re-export 兼容
+- **detector.py 改为执行器**：`OA_RULES`/`OA_CONTENT_FINGERPRINTS` = 加载结果（保留原名,测试兼容）,新增 `OA_RULE_SOURCES` 来源审计;硬编码改名 `BUILTIN_*` 仅作回退（两个规则目录都无 YAML → 行为与外部化前一致）
+- **rules 管理打通**：`DEFAULT_POC_CONFIG` 新增 `oa` 来源（`~/.rayscan/rules/oa/`,rules status/update 可见,可放独立 git 仓库增量同步）
+- **验收**：`tests/test_oa_rules_loader.py` 16 用例（parity/回退/纯 YAML 新增 OA/覆盖/损坏跳过/校验）;黄金矩阵 `--only oa` 双靶标 PASS（oa_vuln 检出 1 / oa_fixed 0 误报）——20/20 基线不变
+- 影响文件：`rules/oa/*.yaml`、`rules/README.md`、`wvs/modules/oa/{rules_loader,detector}.py`、`wvs/core/poc_source_manager.py`、`tests/test_oa_rules_loader.py`、`docs/OA_RULES.md`、`CHANGELOG.md`
+
+### 2026-09-08 (v2.2 T2.4/T2.5 + 矩阵新模块靶标 + 6 真实缺陷修复)
+- **T2.4 登录态维持**：HTTPPool 检测会话失效（401/登录重定向）→ 自动重登回调（CLI 认证后注册,全 auth 类型）→ 刷新凭据重放当前请求；10s 冷却防 401 探测引发反复登录；成功后清 GET 去重缓存；`tests/test_session_reauth.py` 3 用例（真实本地服务全链路）
+- **T2.5 双账号 IDOR**：`--second-auth "Header: Value"` → idor 对象替换命中后用 B 会话（独立 httpx client 防 cookie 混叠）实际读取 A 对象,确认升级 HIGH/HIGH,未确认保持 MEDIUM；`tests/test_idor_second_auth.py` 3 用例；矩阵新增 idor_confirmed 靶标
+- **矩阵 7 个新模块靶标**：weakpass(/login 弱口令+/user/login 护栏)、webshell(/cmd.php)、js_analysis(app.js 密钥+clean 护栏)、api(CORS/secret_key/.env)、waf(/waf-protected CF 形态+主靶场零 WAF 护栏)、authbypass(/jwt/profile 弱密钥 JWT 链路)、jspathfinder(JS 引用→fuzz 发现 /.env)
+- **must_detect_any**：any-of 语义,cmdi 检出端点随平台 shell 不同（Win→/rce、Linux→/cmdi）,CI 首跑暴露
+- **6 真实缺陷修复**：①HTTPPool GET 去重缓存键不含请求头→CORS 检测拿旧响应漏检/authbypass 重放误报隐患（语义头现参与键）②rce Java EL leak 指示词计数未排除载荷回显→反射端点必误报（现排除载荷内指示词）③waf 签名管道断裂（baseline 无 cookies 键,status 键名不符→Cookie 型签名从未生效,现从 Set-Cookie 解析+CF 补 body 标记）④js_analysis 统计行访问不存在属性→全模块发现静默丢弃（从未工作过）⑤vuln_type_map 缺 5 模块+--modules jspathfinder 因 config 默认 enabled:False+合成属性静默空转（load_module 现强制启用）⑥weakpass 凭据走 query 改 body+benchmark_lab Werkzeug 版本头覆写（api 刷屏+waf 签名被盖）+strict_slashes+_hint Response 透传+weakpass/webshell O(N²) 探测补每基址守卫
+- **⑧ rate_limiter 单测**：8 用例（突发/均匀窗口、429 退避恢复、WAF 规避头、Intelligent 装配）
+- CI Golden Matrix 首跑：11/12 绿（lfi Linux ✓、oa_fixed 版本过滤 ✓）,唯一 FAIL=cmdi 平台差异已修
+- 影响文件：`wvs/core/{session,scanner}.py`、`wvs/modules/{idor,weakpass,waf,js_analysis}/detector.py`、`wvs/modules/base.py`、`wvs/cli.py`、`scripts/{run_golden_matrix,benchmark_lab}.py`、`scripts/golden_matrix.yaml`、`tests/{test_session_reauth,test_idor_second_auth,test_rate_limiter}.py`、`CHANGELOG.md`
+
+### 2026-09-08 (黄金靶场矩阵 — 检测可信度制度化 v2.2 T2.1/T2.2)
+- 合并远程 v2.2.0（27 提交：AI 复核/MCP/GraphQL/SPA 爬取/基准体系/S5 OA 闭环），冲突解决 ci.yml（取远程 pyproject fail_under=25 方案）/AGENTS.md（双方条目保留）/cli.py（--ai-verify 与 --concurrency 共存）
+- **黄金矩阵 runner** `scripts/run_golden_matrix.py`：机器可读期望清单驱动，must_detect（URL 子串级漏报门禁）+ must_not_flag（误报防线）双断言 + 清单外 WARN；单靶标批量扫描（--modules 多模块一次爬扫,按报告 module 字段归属,3 次扫描替代 10 次）
+- **期望清单** `scripts/golden_matrix.yaml`：9 主靶场模块 + OA 双靶标；实测驱动编码（先 --record 观察再固化）
+- **靶场扩展** `scripts/benchmark_lab.py`：OA Nacos 双实例（1.3.2 漏洞版检出 / 1.5.0 修复版同响应应被版本过滤跳过——版本过滤专项回归防线）；idor 三端点（/api/invoice 对象替换静态页不回显 id 防反射噪音、/api/users page=all 批量泄露、/api/secure-invoice 403 护栏）；/safe/api success:false 护栏
+- **踩坑记录**：扫描器对目录形端点补尾斜杠（/api/users → /api/users/ 404 → 批量探测失效），靶场需双路由注册；审计/调试时务必确认靶场进程存活（打空靶 = xxe 空耗 17min 且全 0 检出）
+- **顺带修复**：cli.py `_save_partial_results` 超时/异常兜底保存无视 `-o` 参数（写死 scan_reports/ 时间戳文件）→ 现优先写 `-o` 路径（矩阵超时抢救依赖此修复）；主靶标扫描拆 4 个有界分组（scan_groups,单批超时不受慢模块拖累）
+- **基线入库** `docs/BASELINES.md`（首次建线实测：9 模块 + OA 双靶标双向验证通过,主靶标批量 ≈30min/Windows）
+- **CI**：新增 Golden Matrix (FP/FN gate) job（workflow_dispatch 手动触发,timeout 60min；per-push 化待靶场分 hub 缩面提速）
+- 待办（v2.2 后续）：api/waf/weakpass/webshell/jspathfinder/js_analysis/authbypass/subdomain 8 模块靶标设计；lfi must_detect 待 CI Linux 复测
+- 影响文件：`scripts/{run_golden_matrix,benchmark_lab}.py`、`scripts/golden_matrix.yaml`、`.github/workflows/ci.yml`、`docs/BASELINES.md`、`CHANGELOG.md`
+
+### 2026-09-07 (被动代理 HTTPS 解密 + CI 门禁做实)
+- **TLS 拦截**：`passive --tls-intercept` 用 MITM CA 按需签发叶证书解密 HTTPS 进检测管线；新增 `wvs/core/passive/tls_intercept.py`（CA 生成/持久化/叶证书缓存/IP SAN/平台信任提示），解密连接支持 keep-alive（Content-Length/chunked/EOF 精确截断）；cryptography 缺失优雅回退隧道；pyproject 新增 `tls` extra，dev 补 cryptography
+- **修复 CONNECT 隧道回环 bug**：原 `_handle_connect` 把客户端数据回环给客户端、从未连上游（HTTPS 经代理必然卡死）；现真正连接目标双向转发 + 不可达 502；`_host_matches` 弃用 `lstrip("www.")` 改显式前缀判断（原会误剥 `web.`）
+- **CLI**：`passive` 子命令新增 `--tls-intercept` / `--ca-dir`
+- **CI 门禁做实**：测试 job 加 `--cov-fail-under=30`（实测 33.5%）；用 CI 锁定版 ruff 0.15.21 格式化 9 个历史遗留文件使 format 门禁转绿
+- **测试**：新增 `tests/test_passive_tls.py`（6 用例：CA 往返/叶证书 SAN+签发链/authority 解析/隧道回退/HTTPS 拦截端到端含 keep-alive）
+- 证实 `scan_reports/` 从未入库（探索误报），.gitignore 已覆盖
+- 影响文件：`wvs/core/passive/{proxy,tls_intercept,__init__}.py`、`wvs/cli.py`、`pyproject.toml`、`.github/workflows/ci.yml`、`tests/test_passive_tls.py`、CHANGELOG.md
+### 2026-08-25 (合并远程 v2.2.0 — 双线合流 + 测试修复)
+- 合并远程 master（22 提交，v2.2.0：AI 复核/MCP/GraphQL/SPA 爬取/基准测试）到本地 master（S4+S5 提交），解决 9 个冲突文件（ci.yml/AGENTS.md/README.md/OA_RULES.md/test_smoke_cli.py/scanner.py/base.py/oa detector.py/wvs_gui.py 删除vs修改），保留双方关键改动
+- 修复合并后 CLI 参数 `--allow-loopback` 重复定义（control_group 与 local_group 各一处 → argparse.ArgumentError 致 14 个测试失败），保留 control_group 完整定义、删除 local_group 重复块
+- README/CHANGELOG 版本统一至 2.2.0，测试计数占位符 `__TEST_COUNT__` 更新为实测 376（pytest collect-only）
+- 验证：全量测试 376 通过（exit 0），改动无回归
+
+### 2026-08-25 (S5 OA 真实样本闭环 — 通达 OA V13.5 本地部署复核)
+- 通达 OA V13.5 官方安装包（659MB，NSIS 静默解压至 D:\MYOA）本地部署成功：Nginx（8895）+ php-cgi（8360-8369）+ MySQL（3336）+ Redis（6399），首页 200「通达网络智能办公系统（试用版）」
+- 新增 `debug_tongda_real.py` 端到端复核：指纹识别命中（html tongda，favicon /static/images/tongda.ico）✅、漏洞检出 0（login_code_scan.php 返回 {"status":"0"}，V13.5 已修复任意用户登录，正确不报）✅——**安全模式真实样本闭环**；漏洞模式（status:1 → 检出）仍由合成靶场闭环
+- 部署踩坑（均已解决并登记 OA_RULES.md）：
+  - Hyper-V 保留端口区间（8201-8300）导致 php-cgi 无法绑定 8260-8269（"Bad file descriptor"），FPM 端口改 8360-8369（Service.ini + nginx.conf 同步）
+  - nginx 队列端口 8750 落在保留区间 8746-8845，改 8896
+  - Redis 旧进程密码与配置不符（AUTH failed），需用当前 redis.windows.conf 重启
+  - `Set-Content -Encoding UTF8` 给 nginx.conf 加 BOM 导致 nginx 报 "unknown directive"（改无 BOM UTF8 重写）
+  - Office_Daemon 看门狗反复触发 Office_Web 服务，OfficeWeb.exe 启动时杀 nginx 进程（手动部署需停用 Daemon）
+- `docs/OA_RULES.md` 验证表登记通达真实样本闭环记录（安全模式 0 误报），待实测备注更新为「其余 6 种 OA 待真实/靶场样本复核」
+- 遗留：通达漏洞模式（任意用户登录）需旧版（< 11.5.200417）样本才能真实触发，当前 V13.5 已修复
+
+### 2026-08-25 (S5 OA 二次复核 — 网络恢复后拉取镜像实测)
+- Docker 网络恢复后拉取 5 个候选镜像验证：
+  - `iisimpler/landray-oa:1.0`（616MB）——真实蓝凌 EKP 应用（Tomcat /ekp 含 login.jsp/km 模块），但启动失败（kmssconfig 加密 + 数据库未就绪 + JVM 内存 1675M<2048M），listener 报错返回 404，无法使用
+  - `pskzc/seeyon:1.0`（317MB）——gRPC 扫描工具服务（python + protobuf），非真实 OA
+  - `wellxterm/kingdee:v1.0`（1.16GB）——arm64 空基础镜像，无金蝶应用
+  - `lao5/oracle12c-r2-yonyou-nc:latest`（470MB）——仅 Oracle 12c R2 数据库，无用友 NC 应用
+  - `easysoft/zentao:16.5`（官方禅道）——拉取成功但为未安装状态（重定向 install.php），与 Windows 安装包版重复，无新增验证价值
+- 结论：4 个候选镜像均不能提供可运行的真实 OA 靶场；vulhub / Vulfocus 均无 7 种国产 OA 镜像
+- `docs/OA_RULES.md` 验证表更新二次复核记录；7 种 OA 维持合成靶场闭环结论（漏洞模式 18 检出 + 安全模式 0 误报）
+
+### 2026-08-24 (S5 OA 复核 — 真实靶场复核 + Docker 网络阻塞诊断)
+- 启动本地 Docker（29.6.2）对真实靶场复核：Nacos（vulhub 1.4.0，CRITICAL 未授权 1 项）、Confluence（vulhub 7.4.10，安装向导模式全端点 302，0 检出为正确非误报）、禅道（16.5，HIGH SQL 注入 1 项）——`debug_real_recheck.py` 端到端复核全部通过
+- Docker 网络阻塞根因诊断：Docker Desktop 手动代理（settings-store.json `OverrideProxyHTTP=127.0.0.1:7897` = Clash Verge）导致大层下载持续 `unexpected EOF`；镜像源（1ms/DaoCloud/NJU）直连返回 403/IncompleteRead；vulhub 仓库核实无泛微/通达/金蝶/蓝凌/致远/用友/万户目录；Docker Hub 非官方 0 星镜像（landray-oa/seeyon/kingdee 等）均无法完整拉取
+- 新增 `tools/pull_via_mirror.py`（从 DaoCloud 镜像源手动下载镜像 + docker load，绕过 Clash 代理）——因网络阻塞未成功，保留备用
+- 恢复 Docker 配置（daemon.json / settings-store.json 已还原）；`docs/OA_RULES.md` 验证表登记 2026-08-24 复核记录与网络阻塞现状
+- 遗留：7 种 OA（泛微/通达/金蝶/蓝凌/致远/用友/万户）真实样本复核仍受 Docker 网络阻塞，维持合成靶场闭环结论
+
+### 2026-08-24 (S5 OA 闭环 — 剩余 8 种 OA 合成靶场闭环)
+- 8 种 OA（泛微/通达/金蝶/蓝凌/致远/用友/禅道/万户）合成靶场端到端闭环：新增 `mock_oa_remaining.py`（127.0.0.1:8901-8908，忠实模拟各 OA 首页指纹 + 漏洞端点响应签名），`debug_oa_remaining.py` 两轮验证——漏洞模式 8/8 全部检出（18 项漏洞）、安全模式 8/8 零误报，指纹识别全部命中
+- 修复致远 ajax.do 检测缺陷：session 对 5xx 重试后抛 RequestError、正文丢失，导致 500 成功特征（CNVD-2021-01627 上传成功返回 500 + code 08441）永远看不到；`_run_check` 对显式声明非 2xx 状态码的检查项改用独立 httpx 请求 `_fetch_with_status`（trust_env=False）容忍该状态码拿正文
+- 修复 sqli 通用验证误报：`"success"` 子串匹配过宽（`{"success":false}` 也命中），改为正则要求 `"success":true`；新增回归测试 `test_sqli_success_false_not_vuln`
+- `_scan_impl` 检测成功后回写 `self._detected_oa`（scanner 注入与内部检测统一出口，保持实例状态一致）
+- 测试：新增 1 项误报回归测试，全量测试 290 通过；`docs/OA_RULES.md` 验证表 8 种 OA 登记合成靶场闭环记录（漏洞模式 18 检出 + 安全模式 0 误报）
+- 遗留：合成靶场闭环检测逻辑，待真实/靶场样本复核（Docker 网络阻塞未解）
+
+### 2026-08-24 (S5 OA 闭环 — 剩余 8 种 OA 规则完善)
+- 8 种 OA 检测规则全部补齐规则级 evidence（响应特征），基于公开漏洞研究（CVE/CNVD/PoC），每条规则"仅证据命中才报"，误报 0：
+  - 泛微：FileDownloadForOutDoc LFI 加 evidence `root:`（/etc/passwd 回显）
+  - 通达：remotelogin.php 替换为 login_code_scan.php 任意用户登录（uid=1 即 admin，evidence `"status":1`）
+  - 金蝶：新增 CommonFileServer 任意文件读取（`/CommonFileServer/c:/windows/win.ini`，evidence `[fonts]`，6.x/7.x/8.x 均受影响）
+  - 蓝凌：新增 custom.jsp 任意文件读取 CNVD-2021-28277（POST var=file:///etc/passwd，evidence `root:`）
+  - 致远：新增 ajax.do 任意文件上传 CNVD-2021-01627（evidence `"code":"08441`，上传成功返回 500）
+  - 用友：新增 portal/file 任意文件读取（路径遍历读 web.xml，evidence `<web-app`）
+  - 禅道：新增 user-login.html 前台 SQL 注入 CNVD-2022-42853（updatexml 报错注入，evidence `xpath syntax error`）
+  - 万户：uploadFile.jsp（GET 探测永不报）替换为 evoInterfaceServlet 未授权访问（evidence `"userList"`，账号+MD5 密码泄露）
+- `_run_check` 支持 `status_codes` 参数（默认 `[200]`；致远 ajax.do 上传成功返回 500 需放宽），保持 S1 误报治理基线
+- 测试：新增 22 项 `TestRemainingOARules`（8 种 OA 规则配置 + evidence 命中/不命中）；`docs/OA_RULES.md` 检测矩阵/字段表/验证表更新（8 种 OA 标注"规则就绪，待真实/靶场样本闭环"）
+- 验证：全量测试 289 通过（含新增 22 项），改动无回归
+
+### 2026-08-24 (S5 OA 闭环 — Confluence 第 4 种 + httpx 代理修复)
+- 闭环 4/12 OA：新增 Confluence（vulhub CVE-2021-26084 靶场 7.4.10，127.0.0.1:8890）——指纹识别（title/atlassian 内容指纹）✅、版本识别（ajs-version-number meta → 7.4.10）✅ 真实靶场闭环；漏洞检测（CVE-2021-26084 OGNL 注入 RCE）用合成靶场 mock_confluence.py（127.0.0.1:8897）闭环，误报 0
+- 修复 httpx 502 根因：httpx 默认 `trust_env=True`，在 Windows 上读取系统代理（Clash `enable_system_proxy`），导致对本地靶场 127.0.0.1 的请求被转发到 Clash 返回 502（curl/http.client 直连正常）；`session.py::_ensure_client` 与 `OADetector._fetch_homepage_for_fingerprint` 加 `trust_env=False`，仅用显式 proxy_pool
+- Confluence 检测规则新增：`OA_RULES["Confluence"]["checks"]` 加 CVE-2021-26084 检查项（POST body `queryString` OGNL payload，evidence `54289`=233*233 回显）；`_run_check` 支持 `param_type`（body/query）；`_detect_oa_version` 加 Confluence 分支（ajs-version-number meta + version= 兜底）
+- 测试：新增 8 项 Confluence 测试（指纹/版本/规则集成/证据命中与不命中）；适配 test_fp_guard 的 fake_send 签名（`_send_request` 增 param_type 参数）
+- 遗留：真实 Confluence 安装需 Atlassian 试用 license，2026-03-30 起官方停止发放（Data Center 产品），漏洞检测暂以合成靶场闭环；`docs/OA_RULES.md` 验证表登记 Confluence 记录
+- 验证：全量测试 267 通过（含新增 Confluence 8 项），改动无回归
+
+### 2026-08-24 (S5 OA 闭环 — 执行)
+- 闭环 3/12 OA：Nacos（vulhub 1.4.0，CVE-2021-29441 未授权）、Jenkins（2.578 WAR 关闭安全认证，脚本控制台未授权 RCE）、Spring（合成靶场 mock_spring.py，actuator env/heapdump 泄露）；全链路（指纹→版本→漏洞验证）端到端完整扫描验证通过，误报 0
+- 修复 Spring 检测缺陷：session 对 4xx 抛 RequestError 导致 Whitelabel Error Page（404 正文）丢失，OA 指纹永远看不到；新增 `OADetector._fetch_homepage_for_fingerprint` 用独立 httpx 请求容忍 4xx 抓首页指纹
+- Jenkins 靶场搭建：Docker 镜像拉取因网络持续 EOF 失败（含多镜像源/代理排查），改下载 Jenkins WAR（腾讯镜像 2.578，54MB）+ 本机 Java 21 运行；发现 Windows Hyper-V 端口保留区间（8001-8100 等）导致 8080/8081 绑定失败，改用 8899
+- `docs/OA_RULES.md` 验证表登记 3 条闭环证据（靶场版本+识别结果+漏洞检出+误报）
+- 遗留：其余 9 种 OA（泛微/通达/金蝶/蓝凌/致远/用友/禅道/万户/Confluence）受 Docker 网络阻塞未闭环，验证表标注"待实测"
+- 验证：全量测试 259 通过（含 test_oa_deep + test_fp_guard 46 项），改动无回归
+
+### 2026-08-24 (S4 信任重建 — 执行)
+- T3 僵尸资产出仓：删除 `full_scan.py`（含泄漏个人路径）、`quick_scan.py`（硬编码靶场+旧 API）、`wvs_gui.py`（停止维护）；删除前确认 Dockerfile/CI/tests 无引用；嵌套 `RayScan/` 目录（独立 git 仓库副本，578 文件）归档至仓库外 `C:\Users\HZR\Desktop\HZR_PROJECTS\RayScan-archive-2026-08-24\`——内含 `delivery/` 设计文档（UserStory/系统设计/安全设计/部署设计等 8 份）与 JS 渲染/SPA 爬取/外部基准的独立 git 历史，**疑似独有成果，未删除仅归档，建议评估是否合并回主仓库**
+- T2 文档重写：`docs/modules.md`（11→18 模块 + core/optional/lite 分层 + 注册机制）、`docs/architecture.md`（runner→integration 路径修正、httpx 主链路、ScanOrchestrator、删 gui/）、新建 `CONTEXT.md`（16 条领域术语 + 命名规则）
+- T1 README 修正：测试徽章 190 passing→259 collected（实测口径）、定位语改 ADR-0001 口径、实战验证→靶机验证、版本表排序修正、结构图删僵尸入口、quick/full_scan 章节改 CLI/Profile 参数说明
+- T4 CHANGELOG：顶部加数字单一事实源规则（CI collect-only 实测，不手写）
+- T5 CI 加固（`.github/workflows/ci.yml`）：新增 audit job（pip-audit 扫锁文件）、hygiene job（git ls-files 卫生检查）、覆盖率门禁 `--cov-fail-under=30`（基线 32%）、mypy 预算门禁（wvs/core ≤250 错误防增长，基线 245），types job 移除 continue-on-error
+- 附带修复：`tests/test_smoke_cli.py::test_version_consistency` 弃用 tomllib（3.11+ 专属）改正则解析，兼容 requires-python>=3.8 全版本；此前该测试在 Py3.9/3.10 必挂
+- 验证：全量测试 exit 0（tomllib 修复后），覆盖率 32%
+
+### 2026-08-24 (S4 启动 — 定位决策与信任重建清单)
+- 新增 `docs/adr/0001-oa-focused-repositioning.md`：定位收缩至「中文 OA / 国产中间件专项检测器」的正式 ADR（固化演进规划 §11 战略修正，含适应度函数 FF1–FF6 与可逆性触发条件）
+- 新增 `docs/audit/rayscan-s4-trust-rebuild-2026-08-24.md`：S4 信任重建执行清单（T1 README 数字修正 / T2 陈旧文档重写 / T3 僵尸资产出仓 / T4 CHANGELOG 数字单一事实源 / T5 CI 门禁加固 / T6 发布冻结至 v2.1.1）
+- 依据：2026-08-24 三路项目审查（架构 / 质量门禁与宣称一致性 / 定位与文档）
+
+### 2026-08-05 (S3 OA 专项深化 — 三级检测链路)
+- 三级检测链路：指纹识别（内容优先）→ 版本识别 → 漏洞验证（规则级证据优先）+ 版本过滤
+- 新增 `OA_CONTENT_FINGERPRINTS`（12 种 OA 内容指纹：title/正文/响应头/Set-Cookie 四类匹配）
+- `_detect_oa_type` 升级双通道：内容指纹优先，URL 路径/关键词回退；`_scan_impl` 优先使用 scanner 注入的 `_detected_oa`（修复断链），否则抓首页识别
+- 新增 `_detect_oa_version`（Jenkins X-Jenkins 头、Nacos 页面版本变量、Spring/泛微/禅道版本字样，未识别不阻塞）与 `_version_in_range`（[min,max) 语义、无版本放行、解析失败放行）
+- `_verify_evidence` 支持检查项规则级 `evidence`（优先于通用类型验证）；`_run_check` 接入版本过滤
+- 首个真实版本过滤用例：Nacos 用户列表未授权（CVE-2021-29441）`evidence: pageItems` + `max_version: 1.4.1`
+- 新增 `tests/test_oa_deep.py`（23 个测试：指纹/版本/过滤/规则证据/Nacos 集成）
+- 新增 `docs/OA_RULES.md`（规则文档 + 检测矩阵 + 实战验证记录表，待实测样本闭环）
+
+### 2026-08-08 (第六轮：--js-render 成熟化 — SPA/JSON API 覆盖闭环)
+- **crawler.crawl_js 网络捕获**：Playwright 渲染时监听 XHR/fetch → 还原 API 端点（query 参数 + JSON body 参数 + is_api）；修复捕获代码 urlparse 未导入 bug
+- **JSON 参数传递链**：ScanTarget 新增 `param_types` 字段；scanner ep_target 传递；base._send_request 支持 `param_type="json"`（httpx json body）；sqli 检测器对 POST data 判定 json 类型
+- **4xx 响应不再抛异常**（HTTPPool 核心修复）：401/403 对检测有信息价值——登录类 API 的 boolean 差异（200+token vs 401+Invalid）是强信号；检测器按 status_code != 200 自然跳过；修复连锁影响（全量测试通过）
+- **boolean 判定豁免**：状态码差异时豁免 payload 回显排除（回显型注入如 login email 不被误拦，真实 Juice Shop 同形态）
+- **scanner 尾斜杠豁免**：is_api 端点不做目录尾斜杠修复（/rest/user/login 不加 / → 404）
+- **基准闭环**：自建 SPA mock（/spa + /rest/products/search + /rest/user/login SQLi 模拟）纳入 run_benchmark.py 断言——**spa_sqli 1/1、spa_xss 3/1 PASS**；run_external_benchmark 改回硬断言（Juice Shop sqli/xss ≥1）；CI benchmark job 安装 playwright+chromium
+- **mypy 14 路径 0 错误**（+crawler/session/techniques_mixins）：SecureCookieStorage None 检查、_sc 注解、_rotate_ua 收窄、get_all_cookies/_get_semaphore 适配、base_params 类型收窄
+- 全量测试 + ruff + format 全绿；CI types 范围扩至 14 路径
+
+### 2026-08-08 (第五轮：外部基准闭环 + 全类型误报清零)
+- **sqli boolean 反射误报修复**（第四轮延续）：boolean 命中排除 payload 原样回显（盲注语义）——反射端点天然免疫；靶场 /sqli/blind 改通用等值判断；**反射误报 11 → 0 全类型清零**（BENCHMARK.md §2 修复记录 13 条）
+- **外部基准（Juice Shop）CI 闭环**：`scripts/run_external_benchmark.py` + CI `benchmark-external` job；历经 4 轮修复（--max-time 1500 限时 / subprocess timeout 1800 / 记录模式）→ **最终 CI 10 job 全绿**；结论：SPA 0 检出 = 真实短板诊断（Angular SPA + JSON API 覆盖不足），记录模式待 SPA 能力提升后改硬断言；WAVSEP 无 release 资产暂缓
+- **mypy 核心链路清零**（TD-003/007）：scanner/models/config/base/dedup/result_merger/cache + 新模块共 11 路径 **0 错误**（全库 212 → 核心 0）；CI types job 范围扩至核心链路（--follow-imports=skip）
+- 全量测试 + ruff + format + CI（Test 3.9-3.12/Lint/Format/Types/Benchmark/Benchmark External）全绿
+
+### 2026-08-08 (第四轮：sqli boolean 误报清零 + 外部基准 + mypy 核心清零)
+- **sqli boolean 反射误报修复**：boolean 命中排除 payload 原样回显（盲注语义）——反射端点天然免疫；`/sqli/blind` 真阳性保留（靶场改通用等值判断兼容 verify payload）；**反射误报 11 → 0 全类型清零**
+- **外部基准（Juice Shop）**：本机网络受限（Docker Hub/npm/GitHub 下载全阻断）→ 新增 `scripts/run_external_benchmark.py`（docker 起 Juice Shop → sqli/xss/api/sensitive 扫描 → 断言）+ CI `benchmark-external` job（workflow_dispatch，GitHub Actions 网络正常环境运行）；WAVSEP 无 release 资产暂缓
+- **mypy 核心链路清零（TD-003/007）**：scanner/models/config/base/dedup/result_merger/cache + 新模块（ai/mcp_server/mcp/graphql）共 11 路径 **0 错误**（从全库 212 → 核心 0）；修复类型：__init__ Optional 注解（_lab_profile/_nuclei_integration）、no-any-return（json.loads/safe_load isinstance、bool() 收窄）、ModuleFactory `Type[DetectionModule]`、TIME_BASED 常量注解、_active_session 断言、cache parse_qs 恒非 None；CI types job 范围扩至核心链路
+- 全量测试 + ruff + format 全绿
+
+### 2026-08-08 (第三轮：xxe/ssrf 基准补全 + 基准回归自动化)
+- **xxe/ssrf 基准补测**：靶场新增 GET 参数型 XXE 提交点 `/xxe_get?xml=`（模拟支持实体展开的解析器，file:///etc/passwd → root:x:0:0: 命中）与 SSRF metadata 模拟（169.254.169.254 → ami-id/instance-id）；两模块均检出真阳性
+- **基准回归自动化**：新增 `scripts/run_benchmark.py`（起靶场 → 逐模块扫描 → 断言 → 汇总；lfi Windows 自动跳过）；CI 新增 `Benchmark (regression gate)` job（workflow_dispatch 手动触发）；ci.yml 补 `workflow_dispatch` 触发器
+- **CI 首跑发现并修复**：rce 在 Linux 0 检出（收敛后只信模板求值，Windows 命中是 time 命令挂起特例）→ 靶场新增真实 Jinja2 SSTI 端点 `/ssti`（用户输入作模板本体，{{7*7}}→49，跨平台真阳性）→ 复验全绿
+- **lfi Linux 验证通过**（1/1 检出，/etc/passwd）——确认此前 Windows 0 检出纯属环境限制
+- 全量测试 + ruff + CI（Test 3.9-3.12/Lint/Format/Types/**Benchmark**）全绿
+
+### 2026-08-08 (第二轮：反射回显误报治理)
+- **策略**：回显类探测收敛为"求值语义"验证——SSTI/EL 只信模板引擎运算求值（{{7*7}}→49），删除"特征词/token 回显"类独立判定（__subclasses__/__builtins__/applicationScope 等，响应出现这些词只证明输入被回显——含截断/引号翻倍变形回显，不证明执行）
+- xss/detector：删除 SSTI 弱信号路径（模板语法反射+config 关键词）
+- rce/detector：_detect_python_injection 收敛（expected 排除 payload 回显 + 删除 leak/token echo）；Java EL leak 加 payload 回显排除
+- ssrf/detector：metadata 命中时 payload 在响应中直接排除
+- 基准验证：反射误报 11→1（仅剩 sqli boolean 已知类型）；/cmdi time-based 核实为真阳性（; 分隔符真实触发）；全量测试 + CI 全绿
+
+### 2026-08-08 (妫€娴嬪熀鍑嗕綋绯?+ 鏋舵瀯娓呯悊 + CI 鐪熷疄楠岃瘉)
+- **妫€娴嬪熀鍑嗭紙鈶狅級**锛氭柊澧?`scripts/benchmark_lab.py`锛團lask 鏈湴闈跺満锛屼粎 127.0.0.1锛歴qli 鍥涘瀷/xss/cmdi/lfi/rce/xxe/ssrf/sensitive锛? `docs/BENCHMARK.md` 鍩虹嚎鐭╅樀锛歴qli 4鐪?1鍙嶅皠璇姤銆亁ss 鏈夋晥銆乧mdi 2鐪熴€乺ce 1鐪?4鍥炴樉璇姤銆乻ensitive 2鐪燂紙淇鍚庯級銆乴fi 0锛圵indows 鏃?/etc/passwd 寰?Linux 澶嶆祴锛夈€亁xe/ssrf 寰呭姙
+- **鍩哄噯椹卞姩淇锛? 澶?sensitive 缂洪櫡锛?*锛?env 鏃犲紩鍙锋牸寮忔柊澧?`env_var_secret` pattern锛??m) 閫愯锛夛紱鎺㈡祴璺緞琛?`/backup/backup.sql` 绛夛紱鍐呭闃堝€?50鈫?0锛堢煭 .env 琚鏉€锛?
+- **CLI `--allow-loopback`**锛歴can 鍛戒护娉ㄥ唽锛堟湰鍦伴澏鍦?鍩哄噯娴嬭瘯鐢紱SSRF 闃叉姢榛樿浠嶆嫤鎴唴缃戯紝淇杩滅缂哄彛锛?
+- **鏋舵瀯娓呯悊锛堚憽锛?*锛氱‘璁?`scan()` 宸蹭綔 facade 濮旀墭 ScanOrchestrator锛涘垹闄ゆ浠ｇ爜 `_do_authenticate`/`_run_module`/`_run_module_no_semaphore`锛?198 琛?+ 4 涓湭鐢?auth import锛?
+- **CI 鐪熷疄楠岃瘉锛堚憿锛?*锛歱ush 鍚?GitHub Actions 棣栨鐪熷疄杩愯鈥斺€斾慨澶?2 涓け璐ワ細`test_mcp.py` 缂?`importorskip('mcp')`锛圕I [dev] 鏃?mcp 渚濊禆锛夈€乣test_smoke_cli.py` tomllib py3.9/3.10 鍏煎锛坱omli 鍏滃簳锛夛紱**鏈€缁?CI 鍏ㄧ豢**锛圱est 3.9-3.12 + Lint + Format + Types锛?
+- **OA 鐪熷疄鏍锋湰娴佺▼锛堚懀锛?*锛歄A_RULES.md 搂7 鏀堕泦娴佺▼ + 璁板綍妯℃澘 + 寰呮敹闆嗘竻鍗曪紙娉涘井/鑷磋繙/鐢ㄥ弸 绛?9 绉嶏級
+
+### 2026-08-08 (T0 鏀跺熬 鈥?鐗堟湰 SSOT + OA 瀹炴祴 + 鍙戝竷 v2.1.0)
+- **鐗堟湰 SSOT 缁熶竴涓?2.1.0**锛歚wvs/__init__.py` 涓?pyproject 瀵归綈锛圫SOT 娉ㄩ噴锛夛紱鎶ュ憡妯″潡锛坈onsole/html/markdown锛夋敼涓哄姩鎬佽鍙?`__version__`锛?5 澶勭‖缂栫爜 1.0.2/2.0.x 娓呯悊锛圲I/GUI/妯℃澘/yml/docstring锛孋HANGELOG 鍘嗗彶璁板綍淇濈暀锛?
+- **OA mock 闈跺満瀹炴祴闂幆**锛? 鏍锋湰锛岃褰曞叆 docs/OA_RULES.md 搂5锛夛細娉涘井-Ecology锛坵eaver.do RCE/octet-stream 鉁咃級銆丯acos 1.3.2锛坲sers 鍒楄〃 pageItems/CVE-2021-29441 鉁咃級銆丯acos 1.5.0锛堢増鏈繃婊?[min,1.4.1) 姝ｇ‘璺宠繃 猬?璐熸牱鏈?鉁咃級銆丣enkins锛?script Script Console 鉁咃級
+- **瀹炴祴鍙戠幇骞朵慨澶?3 涓湡瀹炵己闄?*锛?
+  1. crawler 鏃犵鐐癸紙鍗曢〉鏃犻摼鎺ヤ笖 seed 鍏?404锛夆啋 `_crawl_and_detect` 鐨?`if eps:` 涓虹┖ 鈫?娴佸紡妫€娴嬫暣浣撹烦杩?鈫?scanner 鍏滃簳绔偣鍓嶇疆
+  2. httpx銆孶RL 鑷甫 query + 鏄惧紡 params={}銆嶄涪寮?URL query锛圤A 妫€鏌ラ」 `/nacos/v1/auth/users?pageNo=1` 404锛夆啋 base.py `_send_request` 绌?params 涓嶄紶
+  3. scanner Step 1.9 娉ㄥ叆鐭悕锛?娉涘井"锛変笌 OA_RULES key锛?娉涘井-Ecology"锛夋柇閾?鈫?`OA_RULES.get()` None 鈫?8 绉?OA 妫€鏌ラ」浠庝笉鎵ц 鈫?`_OA_ALIASES` 鍒悕鏄犲皠锛涜繛甯︿慨澶?OA `_create_vuln` 鏋氫妇璇紶锛坴uln_type 搴斾负瀛楃涓诧級瀵艰嚧鎶ュ憡 JSON 搴忓垪鍖栧け璐?
+- CHANGELOG 2.1.0 鏉＄洰 + README 鏇存柊锛堢増鏈窘绔?274 娴嬭瘯/AI路MCP路GraphQL 鐢ㄦ硶锛夛紱鍙戝竷 tag v2.1.0
+
+### 2026-08-08 (T4 宸ョ▼鍦板熀 鈥?娓?TECH_DEBT)
+- **ruff 閰嶇疆缁熶竴锛堟湰鍦?= CI锛?*锛歱yproject `lint.select` 鏀舵暃涓?E/F/W/I + `ignore` 鍔?E402/E501锛堜笌 CI 鍛戒护涓€鑷达級锛汣I lint job 绉婚櫎鍛戒护琛?`--select/--ignore` 瑕嗙洊锛涙洿涓ユ牸瑙勫垯闆嗭紙B/C4/UP/BLE/TRY 绛夛級鏍囨敞涓哄瓨閲忓€哄姟娓愯繘鍚敤
+- **TD-006 瑕嗙洊鐜囬棬绂?*锛歱yproject 鏂板 `[tool.coverage.run]`锛坰ource=wvs, branch锛? `[tool.coverage.report] fail_under=25`锛堝垎鏀鐩栧熀绾?~27%锛夛紱CI test job 鍗囩骇涓?blocking锛涙湰鍦?`pytest --cov` 涓?CI 鍚岄棬妲?
+- **TD-008 core 灞傚崟娴?*锛氭柊澧?`tests/test_core_engine.py`锛?5 涓祴璇曪級锛歴canner 褰掍竴鍖?鍘婚噸绛惧悕/涓ラ噸搴︿紭鍏?绔偣 key/绔偣鎺掑簭锛沜rawler URL 褰掍竴鍖栵紙host 灏忓啓/榛樿绔彛/query 鎺掑簭锛夈€乽rl_key銆乿isited銆乧rawlable 鍩?鎵╁睍鍚嶈繃婊ゃ€丏iscoveredEndpoint 鍝堝笇锛汬TTPPool 鐨?get_host銆乻et_cookie 娉ㄥ叆 httpx jar銆乧ookie jar 璇诲啓銆乢merge_headers UA/鑷畾涔夊ご/jar cookie 娉ㄥ叆
+- **TD-003/007 鏂版ā鍧楃被鍨嬫敹鍙?*锛氫慨澶?`wvs/ai/client.py` 2 澶?`no-any-return`锛坋xtract_json/chat 杩斿洖绫诲瀷鏀剁獎锛夛紱CI types job 鏀逛负鍙煡鏂版ā鍧?`mypy wvs/ai wvs/mcp_server.py wvs/modules/mcp wvs/modules/graphql --ignore-missing-imports`锛堟湰鏈?0 閿欒锛夛紱瀛橀噺妯″潡 mypy 鍊哄姟锛?12 閿欙級鏍囨敞鍦?TECH_DEBT 娓愯繘鏁存敼
+- 鍏ㄩ噺 **274 passed**锛況uff E/F/W/I + format 鍏ㄧ豢锛沜overage 26.75% 鈮?25 闂ㄧ
+
+### 2026-08-08 (T3 鐜颁唬搴旂敤瑕嗙洊 鈥?GraphQL + 鍙€?SPA)
+- **T3.1 GraphQL 妫€娴?*锛氭柊澧?`wvs/modules/graphql/`锛坙ite 妯″潡锛屾敞鍐岃繘 ModuleFactory锛夛細8 鏉℃爣鍑嗚矾寰勬帰娴?+ 鎸囩汗纭锛坃_typename/GraphQL/graphiql/apollo锛? 涓ゆ鏌ラ」鈥斺€攊ntrospection 寮€鍚紙INFO_DISCLOSURE/MEDIUM锛宍{__schema{types}}` 杩斿洖 types 鎵嶇畻锛夈€佹壒閲忔煡璇㈡敮鎸侊紙API_SECURITY/LOW锛孞SON 鏁扮粍璇锋眰琚帴鍙楋級锛涜瘉鎹獙璇佸師鍒欙細浠呯鐐瑰彲杈句笉鎶ャ€佹棤 GraphQL 鐗瑰緛涓嶆姤銆乮ntrospection 绂佺敤涓嶆姤
+- 绔偣绛栫暐闃茶矾寰勭垎鐐革細鏍圭鐐规墠鍋氭爣鍑嗚矾寰勫叏闆嗘帰娴嬶紱鍏蜂綋绔偣浠呰矾寰勫惈 graphql/gql/graphiql 鐗瑰緛璇嶆墠鑷韩鎺㈡祴锛堢鍒扮瀹炴祴锛?1 涓噸澶嶆紡娲?鈫?鏀舵暃涓?1 涓湡闃虫€э級
+- **T3.2 鍙€?SPA 鐖彇**锛歚scan --js-render`锛堝疄楠屾€э級鈫?config `crawler.js_render` 鈫?crawler 瀵瑰疄鎴樼洰鏍囧惎鐢?SPA 妫€娴?+ Playwright 娓叉煋鐖彇锛堝鐢ㄦ棦鏈?`_check_spa`/`crawl_js`锛屾湭瑁?playwright 鑷姩鍥為€€锛夛紱pyproject 鏂板 `jsrender` extras锛坧laywright锛?
+- base.py vuln_type_map 琛?graphql 鈫?API_SECURITY
+- 鏂板 `tests/test_graphql.py`锛?2 涓祴璇曪細鐗瑰緛/introspection 鍒ゅ畾/绔偣鎺㈡祴璇佹嵁楠岃瘉/playground 椤?闈?graphql 绔偣璺宠繃/js-render 鎺ョ嚎/CLI 鍙傛暟锛夛紱鍏ㄩ噺 **249 passed**锛況uff E/F/W/I + format 鍏ㄨ繃
+- 绔埌绔疄娴嬶細鏈湴 mock GraphQL 鏈嶅姟 + 鐪熷疄鎵弿閾捐矾 鈫?introspection 妫€鍑猴紝鎶ュ憡浠?1 涓湡闃虫€э紙/graphql锛?
+
+### 2026-08-08 (T2 MCP 鎺ュ叆 + 璐﹀彿缁熶竴)
+- **T2.1 MCP Server**锛氭柊澧?`wvs/mcp_server.py`锛堝畼鏂?mcp SDK锛屽彲閫変緷璧?`pip install "rayscan[mcp]"`锛宲y3.10+锛汧astMCP streamable-http锛岄粯璁ょ粦瀹?127.0.0.1:18000锛夛紱宸ュ叿锛歚scan(url, modules, all_modules, max_time)`锛堝畬鏁存壂鎻忚繑鍥炴憳瑕?JSON锛夈€乣list_modules`銆乣get_report`锛堟渶杩戜竴娆℃壂鎻忕粨鏋滐級锛汣LI `python -m wvs mcp [--host] [--port]`锛涙棤 SDK 鏃跺弸濂芥彁绀鸿繑鍥?1
+- **T2.2 MCP 鐩爣鎵弿**锛氭柊澧?`wvs/modules/mcp/`锛坙ite 妯″潡锛屾敞鍐岃繘 ModuleFactory锛夛細甯歌 MCP 绔偣鎺㈡祴锛?mcp銆?api/mcp銆?sse銆?rpc 绛?7 鏉★級+ 鐗瑰緛鎸囩汗锛坖sonrpc/serverInfo/SSE 澶达級+ 璇佹嵁楠岃瘉涓ゆ鏌ラ」鈥斺€攖ools/list 鏈巿鏉冭皟鐢紙INFO_DISCLOSURE/MEDIUM锛夈€佹晱鎰熷伐鍏锋湭鎺堟潈鍙皟锛圔ROKEN_ACCESS/HIGH锛夛紱绾彙鎵嬩笉鎶ワ紱`_create_vuln` 浣跨敤 explicit_vuln_type锛宐ase.py vuln_type_map 琛?mcp
+- **T2.3 update-pocs**锛欳LI `rayscan update-pocs [--list-oa]`锛氶噸寤?PoC 妯℃澘绱㈠紩锛坒orce锛? 鎸?13 绫?OA 鎶€鏈爤缁熻 OA 鐩稿叧妯℃澘鏁板苟鍙垪鍑猴紙澶嶇敤 TECH_STACK_TAGS锛?
+- **璐﹀彿缁熶竴鏀跺熬**锛歚cli.py:cmd_version`銆乣wvs_gui.py`锛? 澶勶級銆乣web_ui/templates/index.html`銆乣wvs/reporting/html_report.py` 涓畫鐣欐棫璐﹀彿 xiabai2004 鈫?xiabai2008锛圕HANGELOG 鍘嗗彶璁板綍淇濈暀锛?
+- pyproject.toml锛氭柊澧?`mcp` extras
+- 鏂板 `tests/test_mcp.py`锛?0 涓祴璇曪細鎸囩汗/宸ュ叿瑙ｆ瀽/绔偣鎺㈡祴璇佹嵁楠岃瘉/POST-only server/鏃犲伐鍏蜂笉鎶?MCP Server 鎽樿涓庨敊璇矾寰?CLI锛夛紱鍏ㄩ噺 **237 passed**锛況uff E/F/W/I + format 鍏ㄨ繃
+- 绔埌绔疄娴嬶細鐪熷疄鍚姩 MCP Server + 妯℃嫙 Claude 瀹㈡埛绔畬鏁村崗璁彙鎵嬶紙initialize鈫抜nitialized鈫抰ools/list鈫抰ools/call锛堿LL PASS锛坰erverInfo=rayscan銆?7 妯″潡鍚?mcp锛?
+- 淇锛欶astMCP 1.27 鏋勯€犵鍚嶏紙host/port 鐩翠紶銆佹棤 version 鍙傛暟锛夛紱mcp_server.py 鐩稿瀵煎叆灞傜骇
+
+### 2026-08-08 (T1 AI 杈呭姪楠岃瘉 鈥?瀹樻柟 API / 鏈€楂樹紭鍏堢骇)
+- 鏂板 `wvs/ai/` 妯″潡锛歚LLMClient`锛圤penAI 鍏煎 chat/completions锛屽鐢?httpx 鏃犳柊渚濊禆锛沗LLM_API_KEY`/`LLM_BASE_URL`/`LLM_MODEL` 鐜鍙橀噺鎴?config `ai.*`锛涙棤 key 鏃?`available=False` 闈欓粯璺宠繃锛沠ail-safe 杩斿洖 None锛? `AIVerifier`锛堝€欓€夋紡娲炲鏍革級+ `report.py`锛圓I 鎶ュ憡鎽樿锛?
+- 璇姤澶嶆牳绛栫暐锛歮edium+ 鍊欓€夋寜 5 鏉?鎵归€?LLM 鍒ゅ畾 鈫?纭锛坈onf鈮?.8锛塼ag `ai_confirmed`锛涘瓨鐤戯紙conf鈮?.3锛変弗閲嶅害闄嶄竴绾?+ tag `ai_disputed`锛涘叾浣?tag `ai_reviewed`锛?*鍙檷绾т笉鍒犻櫎**锛岃姹傚け璐?杈撳嚭涓嶅彲瑙ｆ瀽鏁存壒鍘熸牱杩斿洖
+- scanner.py锛歅hase 3.6 鎺ュ叆澶嶆牳锛坈onfig `ai.verify` 榛樿 False锛夛紱cli.py锛歚--ai-verify`锛堝紑鍚嵆鎵撳嵃绗笁鏂规暟鎹憡璀︼級
+- 鏂板 `ai-report` 瀛愬懡浠わ細璇绘棦鏈?JSON 鎶ュ憡 鈫?LLM 鐢熸垚 markdown 鎽樿锛坄rayscan ai-report report.json -o summary.md`锛?
+- config.py锛歚ai` 娈碉紙verify/base_url/model/timeout 榛樿鍏ㄥ叧锛沘pi_key 涓嶅叆搴擄紝浠呯幆澧冨彉閲忥級
+- 鏂板 `tests/test_ai_verify.py`锛?7 涓祴璇曪細client 鍙敤鎬?璇锋眰鏋勯€?MockTransport/JSON 瑙ｆ瀽銆乿erifier 纭/闄嶇骇/鎵规/寮傚父淇濇寔銆佹姤鍛婃彁鍙栦笌 CLI锛夛紱鍏ㄩ噺 **217 passed**锛況uff E/F/W/I + format 鍏ㄨ繃
+- 绔埌绔疄娴嬶細鏈湴 mock OpenAI 鍏煎鏈嶅姟 + `ai-report` 鐪熷疄 HTTP 閾捐矾楠岃瘉閫氳繃锛堟憳瑕佽惤鐩橈級锛沗scan --help` 鍙傛暟娉ㄥ唽姝ｇ‘
+- 瑙勫垝鏂囨。 `docs/audit/rayscan-upgrade-plan-2026-08-08.md`锛堝閮ㄨ皟鐮?+ T0-T5 鍒嗘湡锛岀敤鎴锋媿鏉匡細瀹樻柟 API / T1 鏈€楂樹紭鍏堢骇锛?
+
+### 2026-08-05 (S3 OA 涓撻」娣卞寲 鈥?涓夌骇妫€娴嬮摼璺?
+- 涓夌骇妫€娴嬮摼璺細鎸囩汗璇嗗埆锛堝唴瀹逛紭鍏堬級鈫?鐗堟湰璇嗗埆 鈫?婕忔礊楠岃瘉锛堣鍒欑骇璇佹嵁浼樺厛锛? 鐗堟湰杩囨护
+- 鏂板 `OA_CONTENT_FINGERPRINTS`锛?2 绉?OA 鍐呭鎸囩汗锛歵itle/姝ｆ枃/鍝嶅簲澶?Set-Cookie 鍥涚被鍖归厤锛?
+- `_detect_oa_type` 鍗囩骇鍙岄€氶亾锛氬唴瀹规寚绾逛紭鍏堬紝URL 璺緞/鍏抽敭璇嶅洖閫€锛沗_scan_impl` 浼樺厛浣跨敤 scanner 娉ㄥ叆鐨?`_detected_oa`锛堜慨澶嶆柇閾撅級锛屽惁鍒欐姄棣栭〉璇嗗埆
+- 鏂板 `_detect_oa_version`锛圝enkins X-Jenkins 澶淬€丯acos 椤甸潰鐗堟湰鍙橀噺銆丼pring/娉涘井/绂呴亾鐗堟湰瀛楁牱锛屾湭璇嗗埆涓嶉樆濉烇級涓?`_version_in_range`锛圼min,max) 璇箟銆佹棤鐗堟湰鏀捐銆佽В鏋愬け璐ユ斁琛岋級
+- `_verify_evidence` 鏀寔妫€鏌ラ」瑙勫垯绾?`evidence`锛堜紭鍏堜簬閫氱敤绫诲瀷楠岃瘉锛夛紱`_run_check` 鎺ュ叆鐗堟湰杩囨护
+- 棣栦釜鐪熷疄鐗堟湰杩囨护鐢ㄤ緥锛歂acos 鐢ㄦ埛鍒楄〃鏈巿鏉冿紙CVE-2021-29441锛塦evidence: pageItems` + `max_version: 1.4.1`
+- 鏂板 `tests/test_oa_deep.py`锛?3 涓祴璇曪細鎸囩汗/鐗堟湰/杩囨护/瑙勫垯璇佹嵁/Nacos 闆嗘垚锛?
+- 鏂板 `docs/OA_RULES.md`锛堣鍒欐枃妗?+ 妫€娴嬬煩闃?+ 瀹炴垬楠岃瘉璁板綍琛紝寰呭疄娴嬫牱鏈棴鐜級
+
+### 2026-08-05 (S2 閾炬潯鎺ラ€?鈥?nuclei 鎺ュ叆 + checkpoint 澶嶆椿)
+- Nuclei 鎺ュ叆涓绘祦绋嬶細`WAVScanner.scan()` Phase 3.5 鏂板 Nuclei 闃舵锛坈onfig `nuclei.enabled` 榛樿寮€锛孋LI `--no-nuclei` 鍏抽棴锛夛紱鏂板 `_run_nuclei`锛堟噿瀹炰緥鍖栵紝CLI 鍙敤璧版ā鏉挎壂鎻忥紝涓嶅彲鐢ㄨ蛋 S1 淇鍚庣殑鍐呯疆鍥為€€锛夛紱缁撴灉缁?`_deduplicate` 鍚堝苟
+- 妯℃澘閫夋嫨淇锛歚_cli_scan_async` 涓嶅啀鎶婃ā鏉挎姌鍙犳垚鐖剁洰褰?`-t`锛堝師瀹炵幇=閫掑綊鎵弿鏁翠釜鐩綍锛夛紝鐩存帴浼犳ā鏉挎枃浠堕€楀彿鍒楄〃锛堜笂闄?200 闃插懡浠よ瓒呴檺锛?
+- Checkpoint 澶嶆椿锛歚__init__` 鍒濆鍖?`_modules_done`/`_last_checkpoint_time`/`_checkpoint_interval`/`_resume_checkpoint`锛堝師 `_save_checkpoint` 寮曠敤鏈垵濮嬪寲瀛楁蹇?AttributeError锛夛紱鎵规寰幆鏇存柊妯″潡瀹屾垚鐘舵€?+ `_try_save_checkpoint` 闂撮殧闄愭祦钀界洏锛涙壂鎻忓畬鎴愯惤鐩樻渶缁?checkpoint锛沗--resume` 娉ㄥ叆 checkpoint 鈫?scan() 鍚堝苟宸插彂鐜版紡娲?+ 璺宠繃宸插畬鎴愭ā鍧?
+- cli.py锛歚--no-nuclei` 鍙傛暟 + `--resume` 娉ㄥ叆 `scanner._resume_checkpoint`
+- 鏂板 `tests/test_s2_resume.py`锛? 涓祴璇曪細checkpoint 寰€杩?闂撮殧闄愭祦/Vulnerability 搴忓垪鍖?nuclei 鎳掑姞杞戒笌澶嶇敤/config 寮€鍏筹級
+- 绔埌绔疄娴嬶細鏈湴 HTTP 鏈嶅姟鍣ㄦ壂鎻?鈫?checkpoint 钀界洏锛坢odules_done=['sqli','xss']锛夆啋 `--resume` 鎭㈠鎻愮ず涓庢ā鍧楄烦杩囧潎楠岃瘉閫氳繃
+
+### 2026-08-05 (S1 璇姤娌荤悊 鈥?鍙戠増鍓嶄慨澶?
+- Nuclei 鍐呯疆鍥為€€锛氱Щ闄?鍙揪鍗虫姤"锛坄pattern is None` 鈫?涓嶆姤锛夛紱/graphql銆?security.txt 琛ュ唴瀹圭壒寰侊紱/dev 妫€鏌ラ」绉婚櫎锛堟棤鍙潬鐗瑰緛锛夛紱body 鎴柇 200鈫?000锛涚壒寰佸尮閰嶆敼澶у皬鍐欎笉鏁忔劅锛沗.git/config` 鐗瑰緛 `remote origin` 鈫?`[remote`锛堢湡瀹炴牸寮忥級
+- OA 妫€娴嬶細`_run_check` 绉婚櫎 401/403/500/302"鐘舵€佺爜鍗虫紡娲?鍒ゅ畾锛屼粎 HTTP 200 + `_verify_evidence` 鍝嶅簲璇佹嵁楠岃瘉锛坲nauth=JSON 鏁版嵁銆乮nfo_disclosure=actuator/heapdump 鐗瑰緛銆乻qli=SQL 鎶ラ敊/JSON success銆乺ce=octet-stream/浜岃繘鍒?Groovy銆乫ile_read=JSP 婧愮爜鐗瑰緛锛夛紱file_upload/info 绫?GET 鎺㈡祴涓嶆姤
+- OA 閫氱敤璺緞锛氱Щ闄?/admin/銆?login/銆?system/銆?api/銆?webservice/銆?backup/ 娉涜矾寰勬鏌ワ紱淇濈暀 4 涓彲鍐呭楠岃瘉鐨勬硠闇茶矾寰勶紙web.xml/MANIFEST.MF/.git/HEAD/.env 閿€煎鍚彂寮忥級
+- XXE锛歚_check_xxe_success` 澧炲姞 baseline 鎺掗櫎锛涗笁涓皟鐢ㄧ偣锛堝弬鏁版敞鍏?XML body/SVG 涓婁紶锛夊潎鍏堝彇鑹€?baseline
+- SSRF锛歚_check_ssrf_success` 澧炲姞 baseline 鎺掗櫎锛堝惈杩炴帴閿欒鍏抽敭璇嶅垎鏀級锛沗test_cloud_metadata` 琛?baseline
+- DOM XSS锛氱Щ闄?`_test_dom`锛圲RL fragment 鍙嶅皠浼娴嬶紝闈炵湡瀹?DOM 妫€娴嬶紱寰?headless 楠岃瘉鎺ュ叆锛?
+- 鏂板 `tests/test_fp_guard.py`锛?3 涓鎶ラ槻鎶ゅ洖褰掓祴璇曪細XXE/SSRF baseline銆丱A 璇佹嵁楠岃瘉銆丯uclei 鍥為€€鐗瑰緛鍖归厤锛?
+- README锛氭挙涓嬫湭鍏戠幇鍗栫偣锛堝寮曟搸鑱氬悎/MSF 楠岃瘉閾炬爣娉ㄤ负 Roadmap锛夛紝娴嬭瘯鏁?79鈫?36锛岄」鐩粨鏋勫浘淇
+- 瑙勫垝鏂囨。 `docs/audit/rayscan-evolution-plan-2026-07-12.md` 鏇存柊鑷?v1.2锛埪?1 鎴樼暐淇锛歄A 涓撻」 + 宸ヤ綔娴侀棴鐜紝鏇夸唬鑷爺鍐呮牳浼樺厛锛?
+
+### 2026-06-27
+- Added Code change log section to AGENTS.md
+
+### 2026-06-27 (Profile System)
+- Added Profile system: `wvs/profiles/` module with ProfileManager
+- Added CLI subcommands: `rayscan profile list|create|delete|export|import`
+- Added `rayscan use <profile> -u <url>` command for profile-based scanning
+- Added built-in profiles: default, src-quick, pentest-full, sqli-only
+- Added 17 tests in `tests/test_profiles/`

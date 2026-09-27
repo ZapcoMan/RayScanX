@@ -1,0 +1,163 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rayscanx"
+version = "2.3.0"
+description = "RayScanX — 开箱即用的 Web 漏洞扫描器 | SQLi/XSS/命令注入/LFI/SSRF/XXE/RCE/API安全 | 多引擎聚合(Nuclei/sqlmap/ffuf)+MSF验证链+Profile扫描配置 | CLI+Web UI双模式"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "xiabai2008"}
+]
+keywords = ["web-security", "vulnerability-scanner", "penetration-testing", "sql-injection", "xss", "security", "bug-bounty", "metasploitable", "dvwa"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "Topic :: Security",
+    "Topic :: Security :: Vulnerability",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "requests>=2.28.0",
+    "httpx>=0.27,<0.29",
+    "flask>=3",
+    "beautifulsoup4>=4.11.0",
+    "lxml>=4.9.0",
+    "pyyaml>=6.0",
+    "colorama>=0.4.0",
+    "aiohttp>=3.8.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.5.0",
+    "mypy>=1.0.0",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pre-commit>=3.0.0",
+    "types-requests",
+    "types-PyYAML",
+    "cryptography>=42.0.0",
+    "tomli; python_version < '3.11'",
+]
+speedup = [
+    "orjson>=3.8.0",
+    "uvloop>=0.17.0",
+]
+nuclei = [
+    "nuclei-python>=0.1.0",
+]
+tls = [
+    "cryptography>=42.0.0",
+]
+integrations = [
+    "python-Wappalyzer>=1.2.0",
+    "aiohttp>=3.8.0",
+]
+gui = [
+    "ttkbootstrap>=1.20.0",
+]
+web = [
+    "flask>=3.0",
+]
+mcp = [
+    "mcp>=1.0",
+]
+jsrender = [
+    "playwright>=1.40",
+]
+
+[project.scripts]
+wvs = "wvs.cli:main"
+rayscan = "wvs.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/xiabai2008/rayscanx"
+Repository = "https://github.com/xiabai2008/rayscanx"
+Issues = "https://github.com/xiabai2008/rayscanx/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["wvs*", "web_ui*"]
+exclude = ["tests*", "docs*", "examples*"]
+
+# 单一格式化器 = ruff-format（不再使用 black/isort，避免行宽/风格冲突）
+# T4: lint 配置与 CI 门禁统一（本地 = CI，避免 E402/E501 本地不一致）——
+# select/ignore 与 .github/workflows/ci.yml 的 ruff check 保持一致。
+# 更严格的规则集（B/C4/UP/SIM/BLE/TRY 等）作为存量债务逐步启用（见 docs/TECH_DEBT.md）。
+[tool.ruff]
+line-length = 120
+target-version = "py38"
+lint.select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort — 导入排序
+]
+lint.ignore = [
+    "E402",  # 模块级 import 非顶部（web_ui sys.path 注入等既有模式）
+    "E501",  # 行长度由 ruff-format 统一处理
+]
+# 历史遗留的载荷数据文件：暂整体排除，列入技术债逐步整改
+lint.exclude = [
+    "wvs/modules/sqli/payloads.py",
+    "wvs/modules/sqli/techniques_mixins.py",
+    "wvs/modules/rce/payloads.py",
+]
+
+# per-file-ignores 引用的规则集（TRY/BLE/S110）已移出 lint.select（见上），
+# 待更严格规则集启用时恢复
+
+[tool.coverage.run]
+source = ["wvs"]
+branch = true
+
+# T4 (TD-006): 覆盖率门禁 — 分支覆盖基线 ~27%（2026-08-08），随测试补齐逐步上调
+[tool.coverage.report]
+fail_under = 30
+show_missing = true
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+no_implicit_optional = false
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_decorators = false
+
+[[tool.mypy.overrides]]
+module = [
+    "tests.*",
+    "wvs.tests.*",
+    "wvs.modules.sqli.payloads",
+    "wvs.modules.sqli.techniques_mixins",
+    "wvs.modules.rce.payloads",
+    "wvs.core.crawler_parsers",
+    "wvs.core.scanner_integrations",
+]
+ignore_errors = true
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+addopts = "-q"

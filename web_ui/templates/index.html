@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<html lang="zh" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RayScan {{ version }} — Web Vulnerability Scanner</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* ── 共享基础样式 ── */
+        body { font-family: 'Segoe UI', system-ui, sans-serif; }
+        .card { border-radius: 8px; }
+        .card-header { font-weight: 600; }
+        #log-area {
+            font-family: 'Cascadia Code', 'Consolas', monospace;
+            font-size: 12px; height: 250px; overflow-y: auto; padding: 10px;
+            border-radius: 6px; white-space: pre-wrap; word-break: break-all;
+            line-height: 1.5;
+        }
+        .stat-label { font-size: 0.8rem; }
+        .stat-value { font-family: 'Consolas', monospace; font-size: 1.1rem; font-weight: 600; }
+        #progress-bar { height: 6px; border-radius: 3px; overflow: hidden; }
+        #progress-bar .progress-bar { transition: width 0.3s; }
+        .table { font-size: 0.85rem; }
+        .form-check-label { font-size: 0.85rem; }
+        .severity-badge { font-size: 0.75rem; padding: 2px 8px; border-radius: 12px; font-weight: 600; }
+
+        /* ── 深色主题 ── */
+        [data-bs-theme="dark"] body { background: #0f1419; color: #e1e4e8; }
+        [data-bs-theme="dark"] #main-navbar { background: #161b22; border-bottom: 1px solid #30363d; }
+        [data-bs-theme="dark"] .card { background: #161b22; border: 1px solid #30363d; }
+        [data-bs-theme="dark"] .card-header { background: #1c2333; border-bottom: 1px solid #30363d; }
+        [data-bs-theme="dark"] .form-control, [data-bs-theme="dark"] .form-select { background: #0d1117; border: 1px solid #30363d; color: #e1e4e8; }
+        [data-bs-theme="dark"] .form-control:focus, [data-bs-theme="dark"] .form-select:focus { background: #0d1117; border-color: #58a6ff; box-shadow: 0 0 0 2px rgba(88,166,255,0.2); }
+        [data-bs-theme="dark"] #log-area { background: #0d1117; color: #e1e4e8; border: 1px solid #30363d; }
+        [data-bs-theme="dark"] .log-info { color: #3fb950; }
+        [data-bs-theme="dark"] .log-warning { color: #d29922; }
+        [data-bs-theme="dark"] .log-error { color: #f85149; }
+        [data-bs-theme="dark"] .stat-label { color: #8b949e; }
+        [data-bs-theme="dark"] .stat-value { color: #58a6ff; }
+        [data-bs-theme="dark"] #progress-bar { background: #21262d; }
+        [data-bs-theme="dark"] #progress-bar .progress-bar { background: #2ea043; }
+        [data-bs-theme="dark"] .table th { border-color: #30363d; color: #8b949e; }
+        [data-bs-theme="dark"] .table td { border-color: #21262d; }
+        [data-bs-theme="dark"] #results-table tbody tr:hover { background: #1c2333; }
+
+        /* ── 浅色主题 ── */
+        [data-bs-theme="light"] body { background: #f5f5f5; color: #212529; }
+        [data-bs-theme="light"] #main-navbar { background: #f8f9fa; border-bottom: 1px solid #dee2e6; }
+        [data-bs-theme="light"] .card { background: #ffffff; border: 1px solid #dee2e6; }
+        [data-bs-theme="light"] .card-header { background: #f8f9fa; border-bottom: 1px solid #dee2e6; }
+        [data-bs-theme="light"] .form-control, [data-bs-theme="light"] .form-select { background: #ffffff; border: 1px solid #ced4da; color: #212529; }
+        [data-bs-theme="light"] .form-control:focus, [data-bs-theme="light"] .form-select:focus { background: #ffffff; border-color: #86b7fe; box-shadow: 0 0 0 2px rgba(13,110,253,0.2); }
+        [data-bs-theme="light"] #log-area { background: #f8f9fa; color: #212529; border: 1px solid #dee2e6; }
+        [data-bs-theme="light"] .log-info { color: #198754; }
+        [data-bs-theme="light"] .log-warning { color: #a16207; }
+        [data-bs-theme="light"] .log-error { color: #dc3545; }
+        [data-bs-theme="light"] .stat-label { color: #6c757d; }
+        [data-bs-theme="light"] .stat-value { color: #0d6efd; }
+        [data-bs-theme="light"] #progress-bar { background: #e9ecef; }
+        [data-bs-theme="light"] #progress-bar .progress-bar { background: #198754; }
+        [data-bs-theme="light"] .table th { border-color: #dee2e6; color: #6c757d; }
+        [data-bs-theme="light"] .table td { border-color: #dee2e6; }
+        [data-bs-theme="light"] #results-table tbody tr:hover { background: #f8f9fa; }
+
+        /* ── 结果筛选按钮 ── */
+        .filter-btn { font-size: 0.75rem; padding: 2px 10px; border-radius: 12px; border: 1px solid #30363d; background: transparent; color: #8b949e; cursor: pointer; transition: all 0.2s; }
+        .filter-btn:hover { background: #21262d; color: #e1e4e8; }
+        .filter-btn.active { background: #238636; color: #fff; border-color: #238636; }
+        .filter-btn.active-crit { background: #f85149; border-color: #f85149; color: #fff; }
+        .filter-btn.active-high { background: #d29922; border-color: #d29922; color: #fff; }
+        .filter-btn.active-med { background: #db6d28; border-color: #db6d28; color: #fff; }
+        .filter-btn.active-low { background: #58a6ff; border-color: #58a6ff; color: #fff; }
+        .search-input { font-size: 0.8rem; padding: 2px 8px; border-radius: 4px; }
+        .stats-summary { font-size: 0.75rem; display: flex; gap: 12px; }
+        .stats-summary span { padding: 0 4px; }
+        .stats-crit { color: #f85149; font-weight: 600; }
+        .stats-high { color: #d29922; font-weight: 600; }
+        .stats-med { color: #db6d28; font-weight: 600; }
+        .stats-low { color: #58a6ff; font-weight: 600; }
+        .stats-info { color: #8b949e; }
+        [data-bs-theme="light"] .filter-btn { border-color: #ced4da; color: #6c757d; }
+        [data-bs-theme="light"] .filter-btn:hover { background: #e9ecef; color: #212529; }
+        [data-bs-theme="light"] .filter-btn.active { background: #198754; border-color: #198754; color: #fff; }
+        .toast-container { z-index: 9999; }
+        @media (max-width: 768px) {
+            #log-area { height: 150px; font-size: 11px; }
+            .stat-value { font-size: 0.9rem; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- 导航栏 -->
+<nav class="navbar navbar-expand navbar-dark px-3 py-2" id="main-navbar">
+    <div class="container-fluid">
+        <span class="navbar-brand mb-0 h1">
+            <span style="color:#58a6ff;">RayScan</span>
+            <small class="text-secondary ms-2" style="font-size:0.7rem;">{{ version }}</small>
+        </span>
+        <ul class="nav nav-pills ms-3" id="main-tabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="tab-scan-btn" data-bs-toggle="tab"
+                        data-bs-target="#tab-scan" type="button" role="tab">扫描</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="tab-passive-btn" data-bs-toggle="tab"
+                        data-bs-target="#tab-passive" type="button" role="tab">被动捕获</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="tab-history-btn" data-bs-toggle="tab"
+                        data-bs-target="#tab-history" type="button" role="tab">历史</button>
+            </li>
+        </ul>
+        <div class="d-flex align-items-center gap-3">
+            <span id="vuln-badge" class="badge bg-secondary">漏洞: 0</span>
+            <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" id="themeSwitch" checked
+                       onchange="toggleTheme()">
+                <label class="form-check-label" for="themeSwitch" style="font-size:0.8rem;">🌙</label>
+            </div>
+        </div>
+    </div>
+</nav>
+
+<div class="container-fluid px-3 py-3">
+  <div class="tab-content" id="main-tabs-content">
+    <div class="tab-pane fade show active" id="tab-scan" role="tabpanel">
+    <div class="row g-3">
+
+        <!-- 左侧配置面板 -->
+        <div class="col-12 col-md-3">
+            <div class="card mb-3">
+                <div class="card-header py-2">检测模块</div>
+                <div class="card-body py-2" id="module-list">
+                    <div class="row" id="modules-container"></div>
+                    <div class="mt-2">
+                        <button class="btn btn-sm btn-outline-secondary me-1" onclick="toggleAll(true)">全选</button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="toggleAll(false)">取消</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header py-2">扫描配置</div>
+                <div class="card-body py-2">
+                    <div class="mb-2">
+                        <label class="stat-label">Profile</label>
+                        <div class="input-group input-group-sm">
+                            <select class="form-select" id="profile-select"></select>
+                            <button class="btn btn-outline-secondary" type="button" onclick="applyProfile()">应用</button>
+                            <button class="btn btn-outline-secondary" type="button" onclick="saveProfile()">保存为</button>
+                        </div>
+                    </div>
+                    <div class="mb-2"><label class="stat-label">速率 (req/s)</label>
+                        <input class="form-control form-control-sm" id="cfg-rate" value="15"></div>
+                    <div class="mb-2"><label class="stat-label">超时 (秒)</label>
+                        <input class="form-control form-control-sm" id="cfg-timeout" value="15"></div>
+                    <div class="mb-2"><label class="stat-label">爬虫深度</label>
+                        <input class="form-control form-control-sm" id="cfg-depth" value="2"></div>
+                    <div class="mb-2"><label class="stat-label">最大 URL</label>
+                        <input class="form-control form-control-sm" id="cfg-urls" value="50"></div>
+                    <div class="mb-2"><label class="stat-label">并发端点</label>
+                        <input class="form-control form-control-sm" id="cfg-concurrent" value="10"></div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="cfg-insecure">
+                        <label class="form-check-label" for="cfg-insecure">跳过 SSL 验证</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="cfg-explain" checked>
+                        <label class="form-check-label" for="cfg-explain">证据链（--explain）</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="cfg-from-proxy">
+                        <label class="form-check-label" for="cfg-from-proxy">被动队列定向扫描</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header py-2">
+                    <a class="text-decoration-none" data-bs-toggle="collapse" href="#auth-body">认证（可选）</a>
+                </div>
+                <div class="collapse" id="auth-body">
+                    <div class="card-body py-2">
+                        <select class="form-select form-select-sm mb-2" id="auth-type" onchange="toggleAuthFields()">
+                            <option value="">无认证</option>
+                            <option value="form">表单登录</option>
+                            <option value="bearer">Bearer Token</option>
+                            <option value="basic">Basic Auth</option>
+                            <option value="apikey">API Key</option>
+                            <option value="cookie">Cookie 注入</option>
+                        </select>
+                        <div class="auth-fields" data-type="form" style="display:none">
+                            <input class="form-control form-control-sm mb-1" id="auth-login-url" placeholder="登录 URL">
+                            <input class="form-control form-control-sm mb-1" id="auth-username" placeholder="用户名">
+                            <input class="form-control form-control-sm" type="password" id="auth-password" placeholder="密码">
+                        </div>
+                        <div class="auth-fields" data-type="bearer" style="display:none">
+                            <input class="form-control form-control-sm" id="auth-token" placeholder="Bearer Token">
+                        </div>
+                        <div class="auth-fields" data-type="basic" style="display:none">
+                            <input class="form-control form-control-sm mb-1" id="auth-basic-user" placeholder="用户名">
+                            <input class="form-control form-control-sm" type="password" id="auth-basic-pass" placeholder="密码">
+                        </div>
+                        <div class="auth-fields" data-type="apikey" style="display:none">
+                            <input class="form-control form-control-sm mb-1" id="auth-apikey" placeholder="API Key">
+                            <input class="form-control form-control-sm" id="auth-apikey-header"
+                                   placeholder="Header 名称（默认 X-API-Key）" value="X-API-Key">
+                        </div>
+                        <div class="auth-fields" data-type="cookie" style="display:none">
+                            <textarea class="form-control form-control-sm" id="auth-cookies" rows="2"
+                                      placeholder="name=value; name2=value2"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header py-2">信息</div>
+                <div class="card-body py-2">
+                    <div class="stat-label">RayScan {{ version }}</div>
+                    <div class="stat-label" style="font-size:0.7rem;">MIT License</div>
+                    <div class="stat-label" style="font-size:0.7rem;">
+                        <a href="https://github.com/xiabai2008/rayscan" class="text-secondary">github.com/xiabai2008</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧主区域 -->
+        <div class="col-12 col-md-9">
+            <!-- URL 输入 -->
+            <div class="card mb-3">
+                <div class="card-body py-2">
+                    <div class="row g-2 align-items-center">
+                        <div class="col-12 col-sm">
+                            <input class="form-control" id="url-input" placeholder="http://目标地址"
+                                   style="font-family:'Consolas',monospace;font-size:1rem;"
+                                   value="http://192.168.18.131">
+                        </div>
+                        <div class="col-6 col-sm-auto">
+                            <button class="btn btn-primary w-100" id="btn-start" onclick="startScan()">
+                                ▶ 开始扫描
+                            </button>
+                        </div>
+                        <div class="col-6 col-sm-auto">
+                            <button class="btn btn-danger w-100" id="btn-stop" onclick="stopScan()" disabled>
+                                ■ 停止
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 进度条 -->
+            <div class="card mb-3">
+                <div class="card-body py-2">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span id="status-text" class="text-secondary" style="font-size:0.9rem;">就绪 ✓ 输入目标后点击开始</span>
+                        <span id="module-text" class="text-info" style="font-family:Consolas;font-size:0.85rem;"></span>
+                    </div>
+                    <div id="progress-bar" class="mb-2">
+                        <div class="progress-bar" id="progress-fill" style="width:0%"></div>
+                    </div>
+                    <div class="row text-center">
+                        <div class="col-3"><div class="stat-label">端点</div><div class="stat-value" id="stat-endpoints">0</div></div>
+                        <div class="col-3"><div class="stat-label">请求</div><div class="stat-value" id="stat-requests">0</div></div>
+                        <div class="col-3"><div class="stat-label">用时</div><div class="stat-value" id="stat-time">0s</div></div>
+                        <div class="col-3"><div class="stat-label">动作</div><div class="stat-value" id="stat-action" style="font-size:0.8rem;color:#8b949e;">-</div></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 实时日志 -->
+            <div class="card mb-3">
+                <div class="card-header py-2 d-flex justify-content-between">
+                    <span>实时扫描日志</span>
+                    <span class="text-secondary" style="font-size:0.7rem;cursor:pointer;" onclick="clearLog()">清空</span>
+                </div>
+                <div class="card-body py-1">
+                    <div id="log-area"></div>
+                </div>
+            </div>
+
+            <!-- 结果表格 -->
+            <div class="card mb-3">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <span id="results-title">发现结果（实时更新）</span>
+                    <div>
+                        <button class="btn btn-sm btn-outline-secondary me-1" onclick="exportJSON()">📥 JSON</button>
+                        <button class="btn btn-sm btn-outline-secondary me-1" onclick="exportHTML()">📄 HTML</button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="clearResults()">🗑 清空</button>
+                    </div>
+                </div>
+                <div class="card-body px-2 py-2">
+                    <!-- 统计摘要 -->
+                    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-1" id="result-toolbar" style="display:none;">
+                        <div class="stats-summary" id="stats-summary">
+                            <span>全部 <strong id="stats-total">0</strong></span>
+                            <span class="stats-crit">● <span id="stats-crit">0</span></span>
+                            <span class="stats-high">● <span id="stats-high">0</span></span>
+                            <span class="stats-med">● <span id="stats-med">0</span></span>
+                            <span class="stats-low">● <span id="stats-low">0</span></span>
+                            <span class="stats-info">● <span id="stats-info">0</span></span>
+                        </div>
+                        <div class="d-flex gap-1 flex-wrap align-items-center">
+                            <button class="filter-btn active" data-filter="all" onclick="setFilter('all', this)">全部</button>
+                            <button class="filter-btn" data-filter="critical" onclick="setFilter('critical', this)" style="border-color:#f85149;">CRITICAL</button>
+                            <button class="filter-btn" data-filter="high" onclick="setFilter('high', this)" style="border-color:#d29922;">HIGH</button>
+                            <button class="filter-btn" data-filter="medium" onclick="setFilter('medium', this)" style="border-color:#db6d28;">MEDIUM</button>
+                            <button class="filter-btn" data-filter="low" onclick="setFilter('low', this)" style="border-color:#58a6ff;">LOW</button>
+                            <input class="search-input form-control form-control-sm ms-1" id="search-input" placeholder="搜索 URL/类型..." style="width:140px;" oninput="filterResults()">
+                        </div>
+                    </div>
+                    <div style="overflow-x:auto;">
+                        <table class="table table-dark table-hover mb-0" id="results-table">
+                            <thead>
+                                <tr><th style="width:70px">严重度</th><th style="width:100px">类型</th><th>URL</th><th style="width:80px">参数</th><th>证据</th></tr>
+                            </thead>
+                            <tbody id="results-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div> <!-- /#tab-scan row -->
+    </div> <!-- /#tab-scan -->
+
+    <!-- 被动捕获 Tab（Task 9 填充面板） -->
+    <div class="tab-pane fade" id="tab-passive" role="tabpanel">
+        <div class="row g-3 mt-1">
+            <div class="col-12 col-md-5">
+                <div class="card">
+                    <div class="card-header py-2">被动捕获配置</div>
+                    <div class="card-body py-2">
+                        <div class="mb-2">
+                            <label class="stat-label">目标域（必填，须有授权）</label>
+                            <input class="form-control form-control-sm" id="passive-target" placeholder="http://授权目标">
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="stat-label">监听地址</label>
+                                <input class="form-control form-control-sm" id="passive-listen" value="127.0.0.1">
+                            </div>
+                            <div class="col-6">
+                                <label class="stat-label">端口</label>
+                                <input class="form-control form-control-sm" id="passive-port" value="8081">
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="stat-label">队列文件（仅限 scan_reports/）</label>
+                            <input class="form-control form-control-sm" id="passive-queue"
+                                   value="scan_reports/proxy_queue.json">
+                        </div>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="passive-tls">
+                            <label class="form-check-label" for="passive-tls">TLS 解密（需先信任 CA）</label>
+                        </div>
+                        <div class="mb-2" id="passive-ca-row" style="display:none">
+                            <label class="stat-label">CA 目录（留空用默认 ~/.rayscan/ca）</label>
+                            <input class="form-control form-control-sm" id="passive-ca-dir" placeholder="~/.rayscan/ca">
+                        </div>
+                        <button class="btn btn-primary btn-sm" id="btn-passive-start" onclick="startPassive()">▶ 启动代理</button>
+                        <button class="btn btn-danger btn-sm" id="btn-passive-stop" onclick="stopPassive()" disabled>■ 停止</button>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-md-7">
+                <div class="card">
+                    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                        <span>捕获状态（只捕获不入检）</span>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="toQueueScan()"
+                                id="btn-queue-scan" disabled>去扫描队列</button>
+                    </div>
+                    <div class="card-body py-2">
+                        <div class="row text-center mb-2">
+                            <div class="col-3"><div class="stat-label">捕获请求</div><div class="stat-value" id="p-stat-requests">0</div></div>
+                            <div class="col-3"><div class="stat-label">发现端点</div><div class="stat-value" id="p-stat-endpoints">0</div></div>
+                            <div class="col-3"><div class="stat-label">已入队</div><div class="stat-value" id="p-stat-queued">0</div></div>
+                            <div class="col-3"><div class="stat-label">状态</div><div class="stat-value" id="p-stat-state">未运行</div></div>
+                        </div>
+                        <div class="stat-label" id="p-hint">启动后将浏览器/工具代理指向提示地址，浏览目标站点即可捕获真实参数面。</div>
+                        <div class="stat-label mt-1" id="p-queue-path" style="font-size:0.7rem;"></div>
+                        <div class="log-error mt-1" id="p-errors" style="font-size:0.75rem;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 历史 Tab（原 dashboard + history 标记，ID 不变） -->
+    <div class="tab-pane fade" id="tab-history" role="tabpanel">
+        <div class="row mt-3">
+            <div class="col-md-3">
+                <div class="card text-white bg-primary mb-3">
+                    <div class="card-header">总扫描数</div>
+                    <div class="card-body"><h3 id="dash-total-scans">0</h3></div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-white bg-danger mb-3">
+                    <div class="card-header">总漏洞数</div>
+                    <div class="card-body"><h3 id="dash-total-vulns">0</h3></div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card text-white bg-danger mb-3">
+                    <div class="card-header">严重</div>
+                    <div class="card-body"><h3 id="dash-critical">0</h3></div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card text-white bg-warning mb-3">
+                    <div class="card-header">高危</div>
+                    <div class="card-body"><h3 id="dash-high">0</h3></div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card text-white bg-info mb-3">
+                    <div class="card-header">中危</div>
+                    <div class="card-body"><h3 id="dash-medium">0</h3></div>
+                </div>
+            </div>
+        </div>
+        <div class="card mt-2">
+            <div class="card-header">最近扫描</div>
+            <div class="card-body" id="dash-recent" style="max-height:400px;overflow-y:auto">
+                <p class="text-muted">暂无扫描记录</p>
+            </div>
+        </div>
+        <div class="card mt-3">
+            <div class="card-header d-flex justify-content-between">
+                <span>扫描历史</span>
+                <button class="btn btn-sm btn-outline-secondary" onclick="loadHistory()">刷新</button>
+            </div>
+            <div class="card-body" id="history-list" style="max-height:500px;overflow-y:auto">
+                <p class="text-muted">暂无历史记录</p>
+            </div>
+        </div>
+    </div>
+
+  </div> <!-- /#main-tabs-content -->
+</div>
+
+<script>
+// ── 模块列表 ──
+const MODULE_LABELS = {
+    "sqli": "SQL注入", "xss": "XSS", "cmdi": "命令注入",
+    "lfi": "LFI", "rce": "RCE", "ssrf": "SSRF", "xxe": "XXE",
+    "api": "API安全", "sensitive": "敏感信息", "waf": "WAF检测",
+};
+const MODULE_COLS = 2;
+
+async function loadModules() {
+    try {
+        const r = await fetch('/api/modules');
+        const data = await r.json();
+        renderModules(data.modules || []);
+    } catch (e) {
+        appendLog('--', 'ERROR', '模块列表加载失败: ' + e);
+    }
+}
+
+function renderModules(list) {
+    const container = document.getElementById('modules-container');
+    container.innerHTML = '';
+    const cols = [];
+    for (let i = 0; i < MODULE_COLS; i++) {
+        const c = document.createElement('div');
+        c.className = 'col-6';
+        cols.push(c);
+    }
+    list.forEach((m, idx) => {
+        const div = document.createElement('div');
+        div.className = 'form-check';
+        const checked = m.default_enabled ? 'checked' : '';
+        const label = MODULE_LABELS[m.name] || m.name.toUpperCase();
+        div.innerHTML = `<input class="form-check-input module-cb" type="checkbox" id="mod-${m.name}" ${checked}>
+                         <label class="form-check-label" for="mod-${m.name}"
+                                title="${escapeHtml(m.description || '')}">${escapeHtml(label)}</label>`;
+        cols[idx % MODULE_COLS].appendChild(div);
+    });
+    cols.forEach(c => container.appendChild(c));
+}
+
+function collectModules() {
+    const out = [];
+    document.querySelectorAll('.module-cb:checked').forEach(cb => out.push(cb.id.replace('mod-', '')));
+    return out;
+}
+
+loadModules();
+
+async function loadProfiles() {
+    try {
+        const r = await fetch('/api/profiles');
+        const data = await r.json();
+        const sel = document.getElementById('profile-select');
+        sel.innerHTML = '<option value="">（不使用）</option>' + (data.profiles || [])
+            .map(p => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}${p.builtin ? '（内置）' : ''}</option>`)
+            .join('');
+    } catch (e) {}
+}
+
+async function applyProfile() {
+    const name = document.getElementById('profile-select').value;
+    if (!name) return;
+    const r = await fetch(`/api/profiles/${encodeURIComponent(name)}`);
+    if (!r.ok) { alert('Profile 加载失败'); return; }
+    const p = await r.json();
+    const params = p.params || {};
+    if (params.rate !== undefined) document.getElementById('cfg-rate').value = params.rate;
+    if (params.timeout !== undefined) document.getElementById('cfg-timeout').value = params.timeout;
+    if (params.crawl_depth !== undefined) document.getElementById('cfg-depth').value = params.crawl_depth;
+    if (params.crawl_max_urls !== undefined) document.getElementById('cfg-urls').value = params.crawl_max_urls;
+    if (params.verify_ssl === false) document.getElementById('cfg-insecure').checked = true;
+    const enabled = ((p.modules || {}).enabled) || [];
+    if (enabled.length) {
+        document.querySelectorAll('.module-cb').forEach(cb => {
+            cb.checked = enabled.includes(cb.id.replace('mod-', ''));
+        });
+    }
+}
+
+async function saveProfile() {
+    const name = prompt('Profile 名称（字母/数字/_/-）');
+    if (!name) return;
+    const params = {
+        rate: parseInt(document.getElementById('cfg-rate').value) || 15,
+        timeout: parseInt(document.getElementById('cfg-timeout').value) || 15,
+        crawl_depth: parseInt(document.getElementById('cfg-depth').value) || 2,
+        crawl_max_urls: parseInt(document.getElementById('cfg-urls').value) || 50,
+    };
+    const r = await fetch('/api/profiles', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': '{{ csrf_token }}'},
+        body: JSON.stringify({
+            name: name,
+            description: 'Web UI 保存',
+            modules: {enabled: collectModules(), disabled: []},
+            params: params,
+        }),
+    });
+    const d = await r.json();
+    if (d.error) { alert(d.error); } else { alert('已保存'); loadProfiles(); }
+}
+
+function toggleAuthFields() {
+    const t = document.getElementById('auth-type').value;
+    document.querySelectorAll('.auth-fields').forEach(el => {
+        el.style.display = (el.dataset.type === t) ? '' : 'none';
+    });
+}
+
+function buildAuthPayload() {
+    const t = document.getElementById('auth-type').value;
+    if (!t) return null;
+    const val = id => document.getElementById(id).value.trim();
+    if (t === 'form') {
+        return {type: 'form', login_url: val('auth-login-url'), username: val('auth-username'),
+                password: document.getElementById('auth-password').value};
+    }
+    if (t === 'bearer') return {type: 'bearer', token: val('auth-token')};
+    if (t === 'basic') {
+        return {type: 'basic', username: val('auth-basic-user'),
+                password: document.getElementById('auth-basic-pass').value};
+    }
+    if (t === 'apikey') {
+        return {type: 'apikey', api_key: val('auth-apikey'),
+                api_key_header: val('auth-apikey-header') || 'X-API-Key'};
+    }
+    if (t === 'cookie') return {type: 'cookie', cookies: document.getElementById('auth-cookies').value};
+    return null;
+}
+
+loadProfiles();
+
+let passiveTimer = null;
+
+async function startPassive() {
+    const target = document.getElementById('passive-target').value.trim();
+    if (!target) { alert('请输入目标域（必须是你有授权的目标）'); return; }
+    const body = {
+        target: target,
+        listen: document.getElementById('passive-listen').value.trim() || '127.0.0.1',
+        port: parseInt(document.getElementById('passive-port').value) || 8081,
+        tls_intercept: document.getElementById('passive-tls').checked,
+        ca_dir: document.getElementById('passive-ca-dir').value.trim() || null,
+        queue_out: document.getElementById('passive-queue').value.trim(),
+    };
+    const r = await fetch('/api/passive/start', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': '{{ csrf_token }}'},
+        body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (d.error) { alert(d.error); return; }
+    document.getElementById('btn-passive-start').disabled = true;
+    document.getElementById('btn-passive-stop').disabled = false;
+    document.getElementById('p-queue-path').textContent = '队列: ' + d.queue_path;
+    if (passiveTimer) clearInterval(passiveTimer);
+    passiveTimer = setInterval(refreshPassiveStatus, 2000);
+    refreshPassiveStatus();
+}
+
+async function stopPassive() {
+    const r = await fetch('/api/passive/stop', {
+        method: 'POST',
+        headers: {'X-CSRF-Token': '{{ csrf_token }}'},
+    });
+    const d = await r.json();
+    if (d.error) { alert(d.error); return; }
+    document.getElementById('btn-passive-start').disabled = false;
+    document.getElementById('btn-passive-stop').disabled = true;
+    if (passiveTimer) { clearInterval(passiveTimer); passiveTimer = null; }
+    refreshPassiveStatus();
+}
+
+async function refreshPassiveStatus() {
+    try {
+        const r = await fetch('/api/passive/status');
+        const s = await r.json();
+        document.getElementById('p-stat-requests').textContent = s.requests_captured || 0;
+        document.getElementById('p-stat-endpoints').textContent = s.endpoints_discovered || 0;
+        document.getElementById('p-stat-queued').textContent = s.queued_endpoints || 0;
+        document.getElementById('p-stat-state').textContent = s.running ? '运行中' : '已停止';
+        document.getElementById('btn-queue-scan').disabled = !(s.queued_endpoints > 0);
+        if (s.running) {
+            const tlsHint = s.tls_intercept
+                ? `HTTPS 解密已开，请先信任 ${s.ca_dir || '~/.rayscan/ca'} 下的 CA 证书。`
+                : 'HTTPS 流量仅隧道转发（不解密）。';
+            document.getElementById('p-hint').textContent =
+                `浏览器/工具代理指向 ${s.listen}；目标域 ${s.target_filter || ''}。` + tlsHint;
+        }
+        document.getElementById('p-errors').textContent = (s.errors || []).join(' | ');
+    } catch (e) {}
+}
+
+function toQueueScan() {
+    const target = document.getElementById('passive-target').value.trim();
+    document.getElementById('tab-scan-btn').click();
+    if (target) document.getElementById('url-input').value = target;
+    document.getElementById('cfg-from-proxy').checked = true;
+    appendLog('--', 'INFO', '已切换到扫描页并启用「被动队列定向扫描」，点击开始扫描');
+}
+
+document.getElementById('passive-tls').addEventListener('change', e => {
+    document.getElementById('passive-ca-row').style.display = e.target.checked ? '' : 'none';
+});
+
+function toggleAll(state) {
+    document.querySelectorAll('.module-cb').forEach(cb => cb.checked = state);
+}
+
+// ── 主题切换 ──
+function toggleTheme() {
+    const dark = document.getElementById('themeSwitch').checked;
+    const theme = dark ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-bs-theme', theme);
+    // 切换标签文字
+    document.getElementById('themeSwitch').nextElementSibling.textContent = dark ? '🌙' : '☀️';
+    // 同步 navbar 颜色（Bootstrap 类切换）
+    const nav = document.getElementById('main-navbar');
+    nav.classList.toggle('navbar-dark', dark);
+    nav.classList.toggle('navbar-light', !dark);
+}
+
+// ── SSE 连接 ──
+let eventSource = null;
+let scanning = false;
+
+function startScan() {
+    const url = document.getElementById('url-input').value.trim();
+    if (!url || url === 'http://') { alert('请输入目标 URL'); return; }
+
+    const modules = collectModules();
+    if (modules.length === 0) { alert('至少选择一个模块'); return; }
+
+    document.getElementById('btn-start').disabled = true;
+    document.getElementById('btn-stop').disabled = false;
+    document.getElementById('results-body').innerHTML = '';
+    document.getElementById('log-area').innerHTML = '';
+    document.getElementById('progress-fill').style.width = '0%';
+    ['stat-endpoints','stat-requests'].forEach(id => document.getElementById(id).textContent = '0');
+    document.getElementById('stat-time').textContent = '0s';
+    scanning = true;
+
+    // 连接 SSE
+    if (eventSource) eventSource.close();
+    eventSource = new EventSource('/api/stream');
+
+    eventSource.addEventListener('log', e => {
+        const d = JSON.parse(e.data);
+        appendLog(d.time, d.level, d.text);
+    });
+
+    eventSource.addEventListener('progress', e => {
+        const d = JSON.parse(e.data);
+        document.getElementById('progress-fill').style.width = Math.min(d.pct, 100) + '%';
+    });
+
+    eventSource.addEventListener('action', e => {
+        const d = JSON.parse(e.data);
+        document.getElementById('module-text').textContent = d.text || '';
+        document.getElementById('stat-action').textContent = d.text || '-';
+    });
+
+    eventSource.addEventListener('result', e => {
+        const d = JSON.parse(e.data);
+        if (d.stats) {
+            document.getElementById('stat-endpoints').textContent = d.stats.endpoints || '0';
+            document.getElementById('stat-requests').textContent = d.stats.requests || '0';
+            document.getElementById('stat-time').textContent = (d.stats.elapsed || 0) + 's';
+        }
+        if (d.vulnerabilities) {
+            d.vulnerabilities.forEach(v => addResultRow(v));
+        }
+    });
+
+    eventSource.addEventListener('done', e => {
+        onScanDone();
+    });
+
+    // 日志中解析到漏洞关键词 → 即时加入结果表
+    eventSource.addEventListener('found', e => {
+        const d = JSON.parse(e.data);
+        // 尝试从日志文本解析漏洞信息
+        const text = d.text || '';
+        // 模式: "🔴 发现 [HIGH] SQL_INJECTION @ /page?id=1"
+        const m = text.match(/发现\s*\[(\w+)\]\s*(\S+)\s*@\s*(\S+)/);
+        if (m) {
+            addResultRow({severity: m[1], type: m[2], url: m[3], parameter: '', evidence: ''});
+        }
+    });
+
+    eventSource.onerror = () => {
+        // 自动重连
+    };
+
+    // POST 启动
+    fetch('/api/scan', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': '{{ csrf_token }}'},
+        body: JSON.stringify({
+            url: url,
+            modules: modules,
+            profile: document.getElementById('profile-select').value || null,
+            explain: document.getElementById('cfg-explain').checked,
+            from_proxy: document.getElementById('cfg-from-proxy').checked,
+            auth: buildAuthPayload(),
+            rate: parseInt(document.getElementById('cfg-rate').value) || 15,
+            timeout: parseInt(document.getElementById('cfg-timeout').value) || 15,
+            crawl_depth: parseInt(document.getElementById('cfg-depth').value) || 2,
+            crawl_max_urls: parseInt(document.getElementById('cfg-urls').value) || 50,
+            concurrent_endpoints: parseInt(document.getElementById('cfg-concurrent').value) || 10,
+            insecure: document.getElementById('cfg-insecure').checked,
+        }),
+    }).then(r => r.json()).then(d => {
+        if (d.error) {
+            appendLog('--', 'ERROR', d.error);
+            onScanDone();
+        } else {
+            appendLog('--', 'INFO', '扫描任务已启动');
+            document.getElementById('status-text').textContent = '扫描进行中...';
+            document.getElementById('status-text').className = 'text-info';
+        }
+    });
+}
+
+function stopScan() {
+    fetch('/api/stop', {method: 'POST', headers: {'X-CSRF-Token': '{{ csrf_token }}'}});
+    appendLog('--', 'WARNING', '用户中止扫描');
+    onScanDone();
+}
+
+function onScanDone() {
+    scanning = false;
+    document.getElementById('btn-start').disabled = false;
+    document.getElementById('btn-stop').disabled = true;
+    document.getElementById('status-text').textContent = '就绪 ✓ 扫描完成';
+    document.getElementById('status-text').className = 'text-secondary';
+    if (eventSource) { eventSource.close(); eventSource = null; }
+}
+
+// ── 日志 ──
+function appendLog(time, level, text) {
+    const area = document.getElementById('log-area');
+    const d = document.createElement('div');
+    const cls = level === 'ERROR' ? 'log-error' : level === 'WARNING' ? 'log-warning' : 'log-info';
+    d.innerHTML = `<span style="color:#8b949e">${time}</span> <span class="${cls}">${escapeHtml(text)}</span>`;
+    area.appendChild(d);
+    area.scrollTop = area.scrollHeight;
+}
+
+function clearLog() {
+    document.getElementById('log-area').innerHTML = '';
+}
+
+// ── 结果数据 ──
+let _allResults = [];
+let _currentFilter = 'all';
+
+function addResultRow(v) {
+    const tbody = document.getElementById('results-body');
+    const sev = (v.severity || 'info').toLowerCase();
+    const badgeCls = `badge-${sev}`;
+    const tr = document.createElement('tr');
+    tr.dataset.severity = sev;
+    tr.style.cursor = 'pointer';
+    tr._vulnData = v;
+    const typeText = escapeHtml(v.type || '');
+    const urlText = escapeHtml(v.url || '');
+    tr.innerHTML = `
+        <td><span class="severity-badge ${badgeCls}">${sev.toUpperCase()}</span></td>
+        <td class="result-type">${typeText}</td>
+        <td class="result-url" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${urlText}</td>
+        <td>${escapeHtml(v.parameter || '')}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(v.evidence || '')}</td>
+    `;
+    tr.onclick = () => toggleDetailRow(tr);
+    _allResults.push({sev, type: typeText, url: urlText, el: tr});
+    tbody.appendChild(tr);
+
+    updateStats();
+    filterResults();
+}
+
+function toggleDetailRow(tr) {
+    const next = tr.nextElementSibling;
+    if (next && next.classList.contains('detail-row')) {
+        next.style.display = next.style.display === 'none' ? '' : 'none';
+        return;
+    }
+    const detail = document.createElement('tr');
+    detail.className = 'detail-row';
+    detail.innerHTML = `<td colspan="5" style="background:#0d1117;">${renderEvidenceChain(tr._vulnData || {})}</td>`;
+    tr.insertAdjacentElement('afterend', detail);
+}
+
+function renderEvidenceChain(v) {
+    let html = '';
+    if (v.description) html += `<div class="mb-1"><strong>描述:</strong> ${escapeHtml(v.description)}</div>`;
+    if (v.recommendation) html += `<div class="mb-1"><strong>修复建议:</strong> ${escapeHtml(v.recommendation)}</div>`;
+    if (v.payload) html += `<div class="mb-1"><strong>载荷:</strong> <code>${escapeHtml(v.payload)}</code></div>`;
+    const chain = v.evidence_chain || [];
+    if (chain.length) {
+        html += '<div><strong>证据链:</strong><ol class="mb-0 mt-1">';
+        chain.forEach(ev => {
+            html += `<li><span class="badge bg-secondary">${escapeHtml(ev.kind || '')}</span> ${escapeHtml(ev.detail || '')}`;
+            if (ev.data && Object.keys(ev.data).length) {
+                html += `<pre class="mb-0 mt-1" style="font-size:11px;white-space:pre-wrap;">${escapeHtml(JSON.stringify(ev.data, null, 2))}</pre>`;
+            }
+            html += '</li>';
+        });
+        html += '</ol></div>';
+    }
+    return html || '<span class="text-muted">（无证据链，未开启 explain 或无信号）</span>';
+}
+
+function updateStats() {
+    const tbody = document.getElementById('results-body');
+    const rows = tbody.querySelectorAll('tr').length;
+
+    // 更新计数 badge
+    document.getElementById('vuln-badge').textContent = `漏洞: ${_allResults.length}`;
+    document.getElementById('vuln-badge').className = _allResults.length > 0 ? 'badge bg-danger' : 'badge bg-secondary';
+
+    // 更新统计
+    document.getElementById('stats-total').textContent = _allResults.length;
+    const counts = {critical: 0, high: 0, medium: 0, low: 0, info: 0};
+    _allResults.forEach(r => { if (counts[r.sev] !== undefined) counts[r.sev]++; });
+    document.getElementById('stats-crit').textContent = counts.critical;
+    document.getElementById('stats-high').textContent = counts.high;
+    document.getElementById('stats-med').textContent = counts.medium;
+    document.getElementById('stats-low').textContent = counts.low;
+    document.getElementById('stats-info').textContent = counts.info;
+
+    // 有结果时显示工具栏
+    document.getElementById('result-toolbar').style.display = _allResults.length > 0 ? 'flex' : 'none';
+}
+
+function setFilter(filter, btn) {
+    _currentFilter = filter;
+    // 更新按钮状态
+    document.querySelectorAll('.filter-btn').forEach(b => {
+        b.className = 'filter-btn';
+        if (b.dataset.filter === filter) {
+            const cls = filter === 'all' ? 'active' : `active-${filter}`;
+            b.classList.add(cls);
+        }
+    });
+    filterResults();
+}
+
+function filterResults() {
+    const search = document.getElementById('search-input').value.toLowerCase().trim();
+    const showAll = _currentFilter === 'all';
+
+    _allResults.forEach(r => {
+        const matchSeverity = showAll || r.sev === _currentFilter;
+        const matchSearch = !search || r.type.toLowerCase().includes(search) || r.url.toLowerCase().includes(search);
+        r.el.style.display = matchSeverity && matchSearch ? '' : 'none';
+    });
+}
+
+function clearResults() {
+    document.getElementById('results-body').innerHTML = '';
+    _allResults = [];
+    _currentFilter = 'all';
+    document.querySelectorAll('.filter-btn').forEach(b => {
+        b.className = 'filter-btn';
+        if (b.dataset.filter === 'all') b.classList.add('active');
+    });
+    document.getElementById('search-input').value = '';
+    document.getElementById('vuln-badge').textContent = '漏洞: 0';
+    document.getElementById('vuln-badge').className = 'badge bg-secondary';
+    document.getElementById('result-toolbar').style.display = 'none';
+    document.getElementById('stats-total').textContent = '0';
+    ['crit','high','med','low','info'].forEach(id => document.getElementById('stats-' + id).textContent = '0');
+}
+
+function exportHTML() {
+    if (_allResults.length === 0) { alert('没有结果可导出'); return; }
+    let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>RayScan Report</title>
+<style>body{font-family:system-ui;margin:20px;background:#f5f5f5}
+h1{color:#333}table{width:100%;border-collapse:collapse;background:#fff}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid #ddd}
+th{background:#f0f0f0}.crit{color:#d73a49;font-weight:600}.high{color:#d29922;font-weight:600}
+.med{color:#db6d28;font-weight:600}.low{color:#0366d6}.sum{margin:10px 0;padding:10px;background:#fff;border-radius:4px}
+</style></head><body>
+<h1>RayScan Scan Report</h1>
+<p>${new Date().toLocaleString()} | ${_allResults.length} vulnerabilities</p>
+<div class="sum">`;
+    const counts = {critical: 0, high: 0, medium: 0, low: 0, info: 0};
+    _allResults.forEach(r => { if (counts[r.sev] !== undefined) counts[r.sev]++; });
+    for (const [k,v] of Object.entries(counts)) {
+        if (v > 0) html += `<strong class="${k}">${k.toUpperCase()}: ${v}</strong>  `;
+    }
+    html += `</div><table><tr><th>Severity</th><th>Type</th><th>URL</th><th>Parameter</th><th>Evidence</th></tr>`;
+    _allResults.forEach(r => {
+        html += `<tr><td class="${r.sev}">${r.sev.toUpperCase()}</td><td>${r.type}</td><td>${r.url}</td><td></td><td></td></tr>`;
+    });
+    html += `</table></body></html>`;
+
+    const blob = new Blob([html], {type: 'text/html'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `rayscan_report_${new Date().toISOString().slice(0,10)}.html`;
+    a.click();
+}
+
+// ── 导出 ──
+function exportJSON() {
+    fetch('/api/export/json').then(r => {
+        if (!r.ok) throw new Error('无结果');
+        return r.json();
+    }).then(data => {
+        const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `rayscan_${new Date().toISOString().slice(0,10)}.json`;
+        a.click();
+    }).catch(e => alert('没有结果可导出'));
+}
+
+// ── 工具 ──
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+// ── 仪表板和历史 ──
+async function loadDashboard() {
+    try {
+        const r = await fetch('/api/stats');
+        const data = await r.json();
+        document.getElementById('dash-total-scans').textContent = data.total_scans;
+        document.getElementById('dash-total-vulns').textContent = data.total_vulns;
+        document.getElementById('dash-critical').textContent = (data.severity_totals.critical || 0);
+        document.getElementById('dash-high').textContent = (data.severity_totals.high || 0);
+        document.getElementById('dash-medium').textContent = (data.severity_totals.medium || 0);
+    } catch(e) {}
+}
+
+async function loadHistory() {
+    try {
+        const r = await fetch('/api/history?limit=50');
+        const data = await r.json();
+        const el = document.getElementById('history-list');
+        if (!data.length) {
+            el.innerHTML = '<p class="text-muted">暂无历史记录</p>';
+            return;
+        }
+        let html = '<table class="table table-sm"><tr><th>#</th><th>目标</th><th>时间</th><th>耗时</th><th>漏洞数</th></tr>';
+        data.forEach(h => {
+            const sev = h.severity_counts || {};
+            const badge = (sev.critical ? `<span class="badge bg-danger">${sev.critical}</span> ` : '') +
+                         (sev.high ? `<span class="badge bg-warning">${sev.high}</span> ` : '');
+            html += `<tr><td>${h.id}</td><td>${h.target}</td><td>${h.time.slice(0,19)}</td><td>${h.duration}s</td><td>${badge}${h.total_vulns}</td></tr>`;
+        });
+        html += '</table>';
+        el.innerHTML = html;
+
+        // Also update dashboard recent
+        const recentEl = document.getElementById('dash-recent');
+        let rh = '<table class="table table-sm"><tr><th>目标</th><th>漏洞数</th></tr>';
+        data.slice(0,10).forEach(h => {
+            rh += `<tr><td>${h.target}</td><td>${h.total_vulns}</td></tr>`;
+        });
+        rh += '</table>';
+        recentEl.innerHTML = rh;
+    } catch(e) {}
+}
+
+// 仪表板定时刷新
+setInterval(loadDashboard, 5000);
+setInterval(loadHistory, 10000);
+
+// 定时刷新用时
+setInterval(() => {
+    if (scanning) {
+        const el = document.getElementById('stat-time');
+        const cur = parseFloat(el.textContent) || 0;
+        el.textContent = (cur + 1).toFixed(0) + 's';
+    }
+}, 1000);
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
