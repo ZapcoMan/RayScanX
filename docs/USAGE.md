@@ -1,0 +1,139 @@
+# 📖 详细使用说明
+
+## 🚀 安装方式
+
+### 从源码安装
+
+```bash
+git clone https://github.com/xiabai2008/rayscanx
+cd RayScanX
+pip install -e ".[dev]"
+```
+
+### Docker
+
+```bash
+docker build -t rayscanx .
+docker run rayscanx scan http://example.com
+
+# Or with docker-compose
+TARGET_URL=http://example.com docker-compose up
+```
+
+## 🎯 常用 CLI 参数（`python -m wvs scan`）
+
+| 参数 | 说明 | 默认值 |
+|------|------|:-----:|
+| `--rate` | 请求速率（req/s） | 10 |
+| `--all-modules` | 启用全部 Lite 模块（OA/WebShell/弱口令/子域名等） | 关 |
+| `--insecure` | 跳过 SSL 证书校验 | 关 |
+| `--no-nuclei` | 关闭 Nuclei 阶段 | 开（默认启用） |
+| `--resume` | 从上次 checkpoint 恢复 | 关 |
+| `-o / -f` | 报告输出路径 / 格式（json/html/csv/md） | json |
+| `--timeout` | 扫描总超时（分钟） | — |
+
+## 📋 常用命令
+
+### CLI 模式
+
+```bash
+# 快速扫描（自动模式：靶机/实战分流）
+python -m wvs scan http://example.com
+
+# 全量扫描（含所有 lite 模块：OA/WebShell/弱口令/子域名等）
+python -m wvs scan http://example.com --all-modules
+
+# 批量扫描
+python -m wvs batch targets.txt
+
+# 列出所有可用模块
+python -m wvs list-modules
+```
+
+### 特定模块扫描
+
+```bash
+# 只跑指定模块（sqli/xss 为 core 默认加载，其余模块用 --all-modules 启用）
+python -m wvs scan http://example.com --all-modules
+
+# Profile 方式（内置 default / src-quick / pentest-full / sqli-only）
+python -m wvs profile list
+python -m wvs use src-quick -u http://example.com
+```
+
+### Web UI 模式（推荐）
+
+适合不想敲命令的用户，浏览器图形化操作，支持实时日志流。
+
+```bash
+# 安装依赖
+pip install flask
+
+# 启动 Web 服务
+cd web_ui && python app.py
+
+# 浏览器打开 http://localhost:5000
+```
+
+| 特性 | 说明 |
+|------|------|
+| 🎨 深色/浅色主题 | 一键切换 |
+| 📐 响应式布局 | 手机/电脑自动适配 |
+| ⚡ 实时日志流 | 和 CLI 完全一致的输出 |
+| 📋 即时结果 | 发现漏洞立刻显示 |
+
+## ⚙️ 核心配置（`wvs/config.py`）
+
+```python
+config.set("crawl_depth", 2)           # 爬取深度
+config.set("crawl_max_urls", 100)      # 最大爬取URL数（实战浅爬 / 靶机深爬自动分流）
+config.set("concurrent_endpoints", 10) # 并发检测数
+config.set("timeout", 15)              # 请求超时(s)
+config.set("verify_ssl", False)        # 是否验证SSL证书
+config.set("retry_count", 1)           # 失败重试次数
+```
+
+## 📁 Profile 扫描配置
+
+```bash
+python -m wvs profile list     # 列出内置 Profile
+python -m wvs use src-quick -u http://example.com   # 按 Profile 扫描
+```
+
+内置 Profile：`default` / `src-quick` / `pentest-full` / `sqli-only`。
+
+## 📁 扫描报告
+
+扫描完成后，结果以 JSON/HTML/CSV 格式输出，默认保存到当前目录。
+
+```bash
+# 指定输出文件和格式
+python -m wvs scan http://example.com -o report.json -f json
+python -m wvs scan http://example.com -o report.html -f html
+```
+
+## 🔧 自定义扫描脚本
+
+如果需要把 RayScanX 作为库嵌入自己的工作流，直接使用 `wvs` 包 API：
+
+```python
+import asyncio
+from wvs.config import ConfigManager
+from wvs.core import HTTPPool, WAVScanner
+from wvs.models import ScanTarget
+
+async def my_scan():
+    config = ConfigManager()
+    config.set("crawl_depth", 2)
+    
+    session = HTTPPool(config)
+    scanner = WAVScanner(config, session)
+    scanner.load_all_modules()
+    
+    target = ScanTarget(url="http://your-target.com")
+    result = await scanner.scan(target)
+    
+    print(f"Found {len(result.vulnerabilities)} vulnerabilities")
+
+asyncio.run(my_scan())
+```
