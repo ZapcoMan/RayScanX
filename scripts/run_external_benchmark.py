@@ -20,19 +20,44 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def wait_ready(url: str, timeout: int = 180) -> bool:
-    deadline = time.time() + timeout
+    """等待目标 URL 服务就绪
+    
+    循环检查目标 URL 是否返回 200 状态码，用于等待 Docker 容器或其他服务启动完成。
+    
+    Args:
+        url: 要检查的目标 URL
+        timeout: 最大等待时间（秒），默认 180 秒
+        
+    Returns:
+        bool: 服务就绪返回 True，超时返回 False
+    """
+    deadline = time.time() + timeout  # 计算超时截止时间
     while time.time() < deadline:
         try:
-            r = urllib.request.urlopen(url, timeout=5)
+            r = urllib.request.urlopen(url, timeout=5)  # 尝试访问 URL
             if r.status == 200:
-                return True
+                return True  # 服务已就绪
         except Exception:
-            time.sleep(3)
-    return False
+            time.sleep(3)  # 请求失败，等待 3 秒后重试
+    return False  # 超时未就绪
 
 
 def scan(port: int, modules: str, out_name: str, timeout: int = 1800, extra_args: Optional[list] = None) -> list:
-    out = ROOT / f"{out_name}.json"
+    """执行扫描并返回漏洞列表
+    
+    调用 RayScanX 扫描器对目标进行漏洞检测，解析结果后删除临时报告文件。
+    
+    Args:
+        port: 目标服务端口
+        modules: 要启用的检测模块（空格分隔）
+        out_name: 输出报告文件名（不含扩展名）
+        timeout: 扫描超时时间（秒），默认 1800 秒
+        extra_args: 额外的 CLI 参数列表
+        
+    Returns:
+        list: 漏洞元组列表，每项为 (type, severity, url)
+    """
+    out = ROOT / f"{out_name}.json"  # 报告输出路径
     cmd = [
         sys.executable,
         "-m",
@@ -56,7 +81,7 @@ def scan(port: int, modules: str, out_name: str, timeout: int = 1800, extra_args
     if not out.exists():
         return []
     data = json.loads(out.read_text(encoding="utf-8"))
-    out.unlink(missing_ok=True)
+    out.unlink(missing_ok=True)  # 清理临时报告文件
     return [(v.get("type"), v.get("severity"), v.get("url")) for v in data.get("vulnerabilities", [])]
 
 
